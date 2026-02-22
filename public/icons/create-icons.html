@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>Create Icons</title></head>
+<body>
+<p>Open this file in a browser, right-click each canvas, and "Save image as" the appropriate filename.</p>
+
+<h3>192×192 (save as icon-192.png)</h3>
+<canvas id="c192" width="192" height="192"></canvas>
+
+<h3>512×512 (save as icon-512.png)</h3>
+<canvas id="c512" width="512" height="512"></canvas>
+
+<script>
+function drawIcon(canvas) {
+  const ctx = canvas.getContext('2d')
+  const s = canvas.width
+
+  // Background
+  ctx.fillStyle = '#111827'
+  ctx.fillRect(0, 0, s, s)
+
+  // Green circle
+  ctx.beginPath()
+  ctx.arc(s/2, s/2, s*0.42, 0, Math.PI*2)
+  ctx.fillStyle = '#22c55e'
+  ctx.fill()
+
+  // Text
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `bold ${s*0.28}px -apple-system, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('TL', s/2, s/2)
+}
+
+drawIcon(document.getElementById('c192'))
+drawIcon(document.getElementById('c512'))
+</script>
+</body>
+</html>
