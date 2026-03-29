@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 
 export default function LoginForm() {
-  const { signInWithMagicLink, signInWithPassword, signUp } = useAuth()
+  const { signInWithMagicLink, signInWithPassword, signUp, resetPassword } = useAuth()
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [mode, setMode]         = useState('magic') // 'magic' | 'password' | 'signup'
+  const [mode, setMode]         = useState('password') // 'magic' | 'password' | 'signup'
   const [status, setStatus]     = useState('idle')  // 'idle' | 'loading' | 'sent' | 'error'
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -29,6 +29,24 @@ export default function LoginForm() {
     }
   }
 
+  async function handleResetPassword() {
+    if (!email) {
+      setErrorMsg('Enter your email first')
+      setStatus('error')
+      return
+    }
+    setStatus('loading')
+    setErrorMsg('')
+    try {
+      await resetPassword(email)
+      setStatus('sent')
+      setMode('reset')
+    } catch (err) {
+      setStatus('error')
+      setErrorMsg(err.message)
+    }
+  }
+
   if (status === 'sent') {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
@@ -37,10 +55,12 @@ export default function LoginForm() {
         <p className="text-gray-400 text-sm">
           {mode === 'magic'
             ? 'We sent a magic link to ' + email + '. Tap it to sign in.'
-            : 'Account created! Check your email to confirm, then sign in.'}
+            : mode === 'reset'
+              ? 'We sent a password reset link to ' + email + '. Tap it to set your password.'
+              : 'Account created! Check your email to confirm, then sign in.'}
         </p>
         <button
-          onClick={() => setStatus('idle')}
+          onClick={() => { setStatus('idle'); setMode('password') }}
           className="mt-8 text-green-400 text-sm underline"
         >
           Back to login
@@ -62,8 +82,8 @@ export default function LoginForm() {
         {/* Mode tabs */}
         <div className="flex rounded-xl overflow-hidden border border-gray-700 mb-6">
           {[
-            { id: 'magic',    label: 'Magic Link' },
             { id: 'password', label: 'Password' },
+            { id: 'magic',    label: 'Magic Link' },
             { id: 'signup',   label: 'Sign Up' },
           ].map(({ id, label }) => (
             <button
@@ -122,6 +142,16 @@ export default function LoginForm() {
             {status === 'loading' ? 'Loading…' : mode === 'magic' ? 'Send Magic Link' : mode === 'signup' ? 'Create Account' : 'Sign In'}
           </button>
         </form>
+
+        {mode === 'password' && (
+          <button
+            type="button"
+            onClick={handleResetPassword}
+            className="w-full text-center text-gray-500 text-xs mt-4 underline"
+          >
+            Forgot password? / Set password for magic link account
+          </button>
+        )}
 
         {mode === 'magic' && (
           <p className="text-center text-xs text-gray-600 mt-6">

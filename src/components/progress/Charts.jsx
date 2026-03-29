@@ -47,7 +47,11 @@ export default function MonthlyChart({ days, year }) {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
         <StatCard label="Total" value={total} unit="workouts" />
-        <StatCard label="Average" value={total > 0 ? Math.round(total / 12) : 0} unit="/ month" />
+        <StatCard label="Average" value={(() => {
+          const now = new Date()
+          const months = year === now.getFullYear() ? now.getMonth() + 1 : 12
+          return total > 0 ? Math.round(total / months) : 0
+        })()} unit="/ month" />
         <StatCard
           label="Best month"
           value={Math.max(...values)}

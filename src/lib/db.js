@@ -153,33 +153,54 @@ export async function getExerciseNames(userId) {
   return names.sort()
 }
 
-export async function getPersonalBest(userId, exerciseName) {
+export async function getPersonalBest(userId, exerciseName, weightType, weightKg) {
   if (!exerciseName) return null
-  const { data, error } = await supabase
+  let query = supabase
     .from('workout_exercises')
     .select('id, weight_kg, weight_type, exercise_sets(reps)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
+
+  // Filter by weight configuration so 1×24kg and 2×24kg have separate PBs
+  if (weightType && weightType !== 'bodyweight') {
+    query = query.eq('weight_type', weightType).eq('weight_kg', weightKg)
+  } else if (weightType === 'bodyweight') {
+    query = query.eq('weight_type', 'bodyweight')
+  }
+
+  const { data, error } = await query
   if (error) throw error
   if (!data || data.length === 0) return null
 
-  let best = null
-  let bestVol = -1
+  let maxTotalReps = 0      // best total reps in a single session
+  let maxSingleSetReps = 0  // best reps in any single set ever
+
   for (const ex of data) {
     const sets = ex.exercise_sets ?? []
-    const maxReps = sets.length > 0 ? Math.max(...sets.map(s => s.reps ?? 0)) : 0
-    const vol = maxReps * (ex.weight_kg ?? 0)
-    if (vol > bestVol) {
-      bestVol = vol
-      best = {
-        sets: sets.length,
-        reps: maxReps,
-        weight_kg: ex.weight_kg,
-        weight_type: ex.weight_type,
-      }
-    }
+    const sessionTotal = sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
+    const sessionMax = sets.length > 0 ? Math.max(...sets.map(s => s.reps ?? 0)) : 0
+    if (sessionTotal > maxTotalReps) maxTotalReps = sessionTotal
+    if (sessionMax > maxSingleSetReps) maxSingleSetReps = sessionMax
   }
-  return best
+
+  return {
+    maxTotalReps,
+    maxSingleSetReps,
+    weight_kg: weightKg ?? null,
+    weight_type: weightType ?? 'single',
+  }
+}
+
+export async function getWorkoutFeed(userId, { limit = 20, offset = 0 } = {}) {
+  const { data, error } = await supabase
+    .from('workout_days')
+    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps))')
+    .eq('user_id', userId)
+    .eq('submitted', true)
+    .order('date', { ascending: false })
+    .range(offset, offset + limit - 1)
+  if (error) throw error
+  return data ?? []
 }
 
 export async function getExerciseHistory(userId, exerciseName) {

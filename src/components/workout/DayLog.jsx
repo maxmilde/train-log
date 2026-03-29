@@ -1,10 +1,10 @@
-import { Clock, Plus, Send, Trash2, CheckCircle } from 'lucide-react'
+import { Clock, Plus, Send, Trash2, CheckCircle, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react'
 import ExerciseRow from './ExerciseRow'
+import WorkoutSummary from './WorkoutSummary'
 
 const DAY_TYPES = [
   { value: 'workout',     label: 'Workout' },
   { value: 'active_rest', label: 'Active Rest' },
-  { value: 'rest',        label: 'Rest' },
 ]
 
 export default function DayLog({
@@ -12,6 +12,7 @@ export default function DayLog({
   exerciseNames,
   onDayTypeChange,
   onDurationChange,
+  onNotesChange,
   onAddExercise,
   onUpdateExercise,
   onDeleteExercise,
@@ -20,8 +21,10 @@ export default function DayLog({
   onDeleteSet,
   onSubmit,
   onDeleteDay,
+  onDateChange,
+  onMoveExercise,
 }) {
-  const { date, dayType, durationMinutes, exercises, submitted } = state
+  const { date, dayType, durationMinutes, notes, exercises, submitted } = state
 
   const dateObj = new Date(date + 'T00:00:00')
   const dateLabel = dateObj.toLocaleDateString('en-GB', {
@@ -39,9 +42,31 @@ export default function DayLog({
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
-      {/* Date header */}
+      {/* Date header — tappable to pick a different date */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-100">{dateLabel}</h2>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              const input = document.getElementById('daylog-date-picker')
+              if (input) input.showPicker?.() || input.click()
+            }}
+            className="text-xl font-bold text-gray-100 flex items-center gap-2"
+          >
+            {dateLabel}
+            <span className="text-gray-500 text-sm">▼</span>
+          </button>
+          <input
+            id="daylog-date-picker"
+            type="date"
+            value={date}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={e => {
+              if (e.target.value && onDateChange) onDateChange(e.target.value)
+            }}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+          />
+        </div>
         {submitted && (
           <span className="flex items-center gap-1 text-xs text-green-400 bg-green-400/10 rounded-full px-2.5 py-1">
             <CheckCircle size={12} />
@@ -74,17 +99,49 @@ export default function DayLog({
       {/* Exercise list — for workout AND active rest */}
       {canLogExercises && (
         <div className="space-y-3">
-          {exercises.map(ex => (
-            <ExerciseRow
-              key={ex.id}
-              exercise={ex}
-              exerciseNames={exerciseNames}
-              onUpdate={patch => onUpdateExercise(ex.id, patch)}
-              onDelete={() => onDeleteExercise(ex.id)}
-              onAddSet={() => onAddSet(ex.id)}
-              onUpdateSet={(setId, patch) => onUpdateSet(ex.id, setId, patch)}
-              onDeleteSet={setId => onDeleteSet(ex.id, setId)}
-            />
+          {exercises.map((ex, index) => (
+            <div key={ex.id} className="flex gap-1 items-start">
+              {/* Reorder arrows */}
+              {exercises.length > 1 && (
+                <div className="flex flex-col gap-0.5 pt-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => onMoveExercise(index, index - 1)}
+                    className={`p-1 rounded-lg flex items-center justify-center transition-colors
+                      ${index === 0
+                        ? 'text-gray-700 cursor-default'
+                        : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
+                    aria-label="Move exercise up"
+                  >
+                    <ChevronUp size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === exercises.length - 1}
+                    onClick={() => onMoveExercise(index, index + 1)}
+                    className={`p-1 rounded-lg flex items-center justify-center transition-colors
+                      ${index === exercises.length - 1
+                        ? 'text-gray-700 cursor-default'
+                        : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
+                    aria-label="Move exercise down"
+                  >
+                    <ChevronDown size={18} />
+                  </button>
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <ExerciseRow
+                  exercise={ex}
+                  exerciseNames={exerciseNames}
+                  onUpdate={patch => onUpdateExercise(ex.id, patch)}
+                  onDelete={() => onDeleteExercise(ex.id)}
+                  onAddSet={() => onAddSet(ex.id)}
+                  onUpdateSet={(setId, patch) => onUpdateSet(ex.id, setId, patch)}
+                  onDeleteSet={setId => onDeleteSet(ex.id, setId)}
+                />
+              </div>
+            </div>
           ))}
 
           <button
@@ -102,15 +159,7 @@ export default function DayLog({
         </div>
       )}
 
-      {/* Rest day message */}
-      {dayType === 'rest' && (
-        <div className="text-center py-12">
-          <p className="text-4xl mb-3">😴</p>
-          <p className="text-gray-500 text-sm">Rest day</p>
-        </div>
-      )}
-
-      {/* Duration — at the bottom, only for workout/active rest */}
+      {/* Duration — at the bottom */}
       {canLogExercises && (
         <div className="pt-2">
           <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
@@ -123,13 +172,32 @@ export default function DayLog({
               inputMode="numeric"
               value={durationMinutes ?? ''}
               onChange={e => onDurationChange(e.target.value === '' ? null : Number(e.target.value))}
-              placeholder="43"
+              placeholder=""
               className="w-24 rounded-xl bg-gray-800 border border-gray-700
                          px-4 py-3 text-xl text-gray-100 text-center min-h-[52px]
                          focus:outline-none focus:border-green-500"
             />
             <span className="text-gray-500 text-sm">minutes</span>
           </div>
+        </div>
+      )}
+
+      {/* Workout notes */}
+      {canLogExercises && (
+        <div className="pt-1">
+          <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
+            <MessageSquare size={10} className="inline mr-1" />
+            Notes
+          </label>
+          <textarea
+            value={notes ?? ''}
+            onChange={e => onNotesChange(e.target.value)}
+            placeholder="How did it go? Any observations..."
+            rows={2}
+            className="w-full rounded-xl bg-gray-800 border border-gray-700
+                       px-4 py-3 text-sm text-gray-100 placeholder-gray-600
+                       focus:outline-none focus:border-green-500 resize-none"
+          />
         </div>
       )}
 
@@ -176,6 +244,11 @@ export default function DayLog({
           </button>
         )}
       </div>
+
+      {/* Post-submission summary */}
+      {submitted && canLogExercises && exercises.length > 0 && (
+        <WorkoutSummary exercises={exercises} durationMinutes={durationMinutes} />
+      )}
     </div>
   )
 }

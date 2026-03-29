@@ -101,15 +101,15 @@ export function calcGoalStats(days, weeklyGoal, now = new Date()) {
   const yearDone   = yearAllDays.filter(d => workoutSet.has(toDateStr(d))).length
   const yearActiveRest = yearAllDays.filter(d => activeRestSet.has(toDateStr(d))).length
 
-  // ON TRACK?
+  // ON TRACK? — proportional to how far we are through the year
   const dayOfYear = Math.floor((now - yearStart) / 86400000) + 1
-  const expected  = Math.floor((dayOfYear / yearAllDays.length) * yearGoal)
-  const track     = yearDone > expected ? 'ahead' : yearDone < expected - 1 ? 'behind' : 'on-track'
+  const expected  = Math.round((dayOfYear / yearAllDays.length) * yearGoal)
+  const track     = yearDone >= expected ? 'ahead' : yearDone < expected ? 'behind' : 'on-track'
 
   return {
     week:  { done: weekDone, goal: weeklyGoal, labels: weekLabels, activeRest: weekActiveRest },
     month: { done: monthDone, goal: monthGoal, activeRest: monthActiveRest },
-    year:  { done: yearDone, goal: yearGoal, track, activeRest: yearActiveRest },
+    year:  { done: yearDone, goal: yearGoal, expected, track, activeRest: yearActiveRest },
   }
 }
 
@@ -125,11 +125,35 @@ export function formatTime(totalSeconds) {
 }
 
 export function formatPB(pb) {
-  if (!pb || !pb.weight_kg) return null
-  const weightStr = pb.weight_type === 'double'
-    ? `2\u00d7${pb.weight_kg}kg`
-    : `${pb.weight_kg}kg`
-  return `${pb.sets} sets \u00d7 ${pb.reps} reps @ ${weightStr}`
+  if (!pb) return null
+  const isSingle = pb.weight_type === 'single'
+
+  // Build weight suffix
+  let weightStr = ''
+  if (pb.weight_type === 'bodyweight' || !pb.weight_kg) {
+    weightStr = ' @BW'
+  } else if (pb.weight_type === 'double') {
+    weightStr = ` @2\u00d7${pb.weight_kg}kg`
+  } else {
+    weightStr = ` @${pb.weight_kg}kg`
+  }
+
+  // New format: max volume + max set + weight
+  if (pb.maxTotalReps !== undefined) {
+    const maxSetStr = isSingle
+      ? `${pb.maxSingleSetReps}/${pb.maxSingleSetReps}`
+      : `${pb.maxSingleSetReps}`
+    return `Vol: ${pb.maxTotalReps} reps \u00b7 Best set: ${maxSetStr}${weightStr}`
+  }
+
+  // Legacy fallback
+  const repsStr = isSingle ? `${pb.reps}/${pb.reps}` : `${pb.reps}`
+  const legacyWeightStr = pb.weight_type === 'bodyweight' || !pb.weight_kg
+    ? ' @BW'
+    : pb.weight_type === 'double'
+      ? ` @2\u00d7${pb.weight_kg}kg`
+      : ` @${pb.weight_kg}kg`
+  return `${pb.sets} sets \u00d7 ${repsStr} reps${legacyWeightStr}`
 }
 
 export function secondsToTimeStr(secs) {

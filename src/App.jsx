@@ -1,29 +1,40 @@
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
+import { TimerProvider } from './context/TimerContext'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import BottomNav from './components/layout/BottomNav'
+import FloatingTimerBar from './components/layout/FloatingTimerBar'
 import LoginPage from './pages/Login'
 import DashboardPage from './pages/Dashboard'
 import WorkoutDayPage from './pages/WorkoutDay'
 import TimerPage from './pages/Timer'
 import ProgressPage from './pages/Progress'
+import SetPasswordPage from './pages/SetPassword'
 
 function AppShell() {
   return (
-    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden">
-      <main
-        className="flex-1 overflow-hidden"
-        style={{ paddingBottom: 'calc(56px + env(safe-area-inset-bottom))' }}
-      >
-        <Outlet />
-      </main>
-      <BottomNav />
-    </div>
+    <TimerProvider>
+      <div className="flex flex-col bg-gray-900 overflow-hidden" style={{ height: '100dvh' }}>
+        <main
+          className="flex-1 overflow-hidden"
+          style={{ paddingBottom: 'calc(60px + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <Outlet />
+        </main>
+        <FloatingTimerBar />
+        <BottomNav />
+      </div>
+    </TimerProvider>
   )
 }
 
 export default function App() {
-  const { user } = useAuth()
+  const { user, isPasswordRecovery } = useAuth()
+
+  // Show set-password screen when returning from password reset link
+  if (isPasswordRecovery) {
+    return <SetPasswordPage />
+  }
 
   return (
     <Routes>

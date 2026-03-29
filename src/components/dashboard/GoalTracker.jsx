@@ -56,9 +56,9 @@ export default function GoalTracker({ stats, weeklyGoal, onGoalChange }) {
         </Card>
 
         <Card title="This Year">
-          <ProgressBar value={year.done} max={year.goal} />
+          <ProgressBar value={year.done} max={year.expected} />
           <p className="text-xs text-gray-400 mt-1.5">
-            {year.done}/{year.goal} <span className="text-gray-600">({pct(year.done, year.goal)}%)</span>
+            {year.done}/{year.expected} <span className="text-gray-600">expected</span>
           </p>
           <div className="flex items-center gap-1 mt-1">
             <span className={`h-1.5 w-1.5 rounded-full ${track.dot}`} />

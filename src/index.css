@@ -4,15 +4,18 @@
 
 html, body, #root {
   height: 100%;
+  height: 100dvh; /* dynamic viewport height — respects Chrome toolbar */
   background-color: #111827;
   color: #f9fafb;
+  overflow: hidden;
 }
 
 /* Prevent body scroll — each tab scrolls independently */
 body {
   overflow: hidden;
-  position: fixed;
   width: 100%;
+  /* Avoid position:fixed which breaks scroll in Chrome iOS */
+  overscroll-behavior: none;
 }
 
 /* Remove number input spinners */

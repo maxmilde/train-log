@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Trash2, ChevronDown } from 'lucide-react'
 import ExerciseAutocomplete from './ExerciseAutocomplete'
 import SetRow from './SetRow'
@@ -18,20 +18,17 @@ export default function ExerciseRow({
   onDeleteSet,
 }) {
   const { user } = useAuth()
-  const pb = exercise.personalBest
+  const [pb, setPb] = useState(null)
   const pbStr = formatPB(pb)
+  const isBodyweight = exercise.weightType === 'bodyweight'
 
-  // Load personal best lazily when exercise name is set
+  // Load personal best when exercise name or weight config changes
   useEffect(() => {
-    if (!user || !exercise.exerciseName) return
-    getPersonalBest(user.id, exercise.exerciseName).then(newPb => {
-      // Only update if different to avoid infinite loops
-      if (JSON.stringify(newPb) !== JSON.stringify(pb)) {
-        onUpdate({ personalBest: newPb })
-      }
-    }).catch(console.error)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exercise.exerciseName, user?.id])
+    if (!user || !exercise.exerciseName) { setPb(null); return }
+    getPersonalBest(user.id, exercise.exerciseName, exercise.weightType, exercise.weightKg)
+      .then(setPb)
+      .catch(console.error)
+  }, [exercise.exerciseName, exercise.weightType, exercise.weightKg, user?.id])
 
   return (
     <div className="bg-gray-800 rounded-2xl p-4 space-y-3">
@@ -65,38 +62,65 @@ export default function ExerciseRow({
 
       {/* Weight + goal sets row */}
       <div className="flex gap-2 items-center">
-        {/* Single / Double toggle */}
-        <div className="flex rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
-          {['single', 'double'].map(wt => (
-            <button
-              key={wt}
-              type="button"
-              onClick={() => onUpdate({ weightType: wt })}
-              className={`px-3 py-2 text-xs font-medium capitalize min-h-[40px] transition-colors
-                ${exercise.weightType === wt
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-900 text-gray-400 hover:text-gray-300'}`}
-            >
-              {wt === 'single' ? '1×' : '2×'}
-            </button>
-          ))}
-        </div>
-
-        {/* Weight dropdown */}
-        <div className="relative flex-1">
-          <select
-            value={exercise.weightKg ?? 24}
-            onChange={e => onUpdate({ weightKg: Number(e.target.value) })}
-            className="w-full appearance-none rounded-lg bg-gray-900 border border-gray-700
-                       px-3 py-2 pr-8 text-gray-100 text-sm min-h-[40px]
-                       focus:outline-none focus:border-green-500"
+        {isBodyweight ? (
+          /* Bodyweight mode — just a label + button to switch back */
+          <button
+            type="button"
+            onClick={() => onUpdate({ weightType: 'single', weightKg: 24 })}
+            className="rounded-lg bg-gray-900 border border-gray-700
+                       px-3 py-2 text-xs text-gray-400 min-h-[40px]
+                       active:bg-gray-700 transition-colors flex-1 text-left"
           >
-            {WEIGHTS.map(w => (
-              <option key={w} value={w}>{w} kg</option>
-            ))}
-          </select>
-          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-        </div>
+            Bodyweight <span className="text-gray-600 ml-1">· tap to add weight</span>
+          </button>
+        ) : (
+          <>
+            {/* Single / Double toggle */}
+            <div className="flex rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
+              {['single', 'double'].map(wt => (
+                <button
+                  key={wt}
+                  type="button"
+                  onClick={() => onUpdate({ weightType: wt })}
+                  className={`px-3 py-2 text-xs font-medium capitalize min-h-[40px] transition-colors
+                    ${exercise.weightType === wt
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-900 text-gray-400 hover:text-gray-300'}`}
+                >
+                  {wt === 'single' ? '1×' : '2×'}
+                </button>
+              ))}
+            </div>
+
+            {/* Weight dropdown */}
+            <div className="relative flex-1">
+              <select
+                value={exercise.weightKg ?? 24}
+                onChange={e => onUpdate({ weightKg: Number(e.target.value) })}
+                className="w-full appearance-none rounded-lg bg-gray-900 border border-gray-700
+                           px-3 py-2 pr-8 text-gray-100 text-sm min-h-[40px]
+                           focus:outline-none focus:border-green-500"
+              >
+                {WEIGHTS.map(w => (
+                  <option key={w} value={w}>{w} kg</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+            </div>
+
+            {/* BW toggle */}
+            <button
+              type="button"
+              onClick={() => onUpdate({ weightType: 'bodyweight', weightKg: null })}
+              className="rounded-lg bg-gray-900 border border-gray-700
+                         px-2 py-2 text-[10px] text-gray-500 min-h-[40px]
+                         active:bg-gray-700 transition-colors flex-shrink-0"
+              title="Switch to bodyweight"
+            >
+              BW
+            </button>
+          </>
+        )}
 
         {/* Goal sets */}
         <div className="flex-shrink-0">
@@ -118,7 +142,9 @@ export default function ExerciseRow({
       {exercise.sets.length > 0 && (
         <div className="space-y-1.5 pt-1">
           <div className="flex gap-2 px-5 mb-1">
-            <span className="flex-1 text-center text-[10px] text-gray-600 uppercase tracking-wider">Reps</span>
+            <span className="flex-1 text-center text-[10px] text-gray-600 uppercase tracking-wider">
+              {exercise.weightType === 'single' ? 'Reps/side' : 'Reps'}
+            </span>
             <span className="w-14 text-center text-[10px] text-gray-600 uppercase tracking-wider">Time</span>
             <span className="w-9" />
           </div>
@@ -127,6 +153,7 @@ export default function ExerciseRow({
               key={set.id || idx}
               set={set}
               setNumber={idx + 1}
+              isSingleKB={exercise.weightType === 'single'}
               onUpdate={patch => onUpdateSet(set.id, patch)}
               onDelete={() => onDeleteSet(set.id)}
             />

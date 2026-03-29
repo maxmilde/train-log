@@ -4,11 +4,13 @@ import { getDaysForYear, getExerciseNames, getExerciseHistory } from '../lib/db'
 import DurationChart from '../components/dashboard/DurationChart'
 import MonthlyChart from '../components/progress/Charts'
 import ExerciseHistory from '../components/progress/ExerciseHistory'
+import WorkoutFeed from '../components/progress/WorkoutFeed'
 
 const VIEWS = [
   { id: 'duration', label: 'Duration' },
   { id: 'monthly',  label: 'Monthly' },
   { id: 'exercise', label: 'Exercise' },
+  { id: 'feed',     label: 'Feed' },
 ]
 
 export default function ProgressPage() {
@@ -87,10 +89,15 @@ export default function ProgressPage() {
             <div className="grid grid-cols-2 gap-3">
               <StatCard
                 label="Total time"
-                value={yearDays
-                  .filter(d => d.day_type === 'workout' && d.duration_minutes)
-                  .reduce((a, d) => a + d.duration_minutes, 0)}
-                unit="minutes"
+                value={(() => {
+                  const mins = yearDays
+                    .filter(d => d.day_type === 'workout' && d.duration_minutes)
+                    .reduce((a, d) => a + d.duration_minutes, 0)
+                  const h = Math.floor(mins / 60)
+                  const m = mins % 60
+                  return `${h}:${m.toString().padStart(2, '0')}`
+                })()}
+                unit="hours"
               />
               <StatCard
                 label="Avg duration"
@@ -115,6 +122,10 @@ export default function ProgressPage() {
             onSelect={setSelectedEx}
             history={exHistory}
           />
+        )}
+
+        {activeView === 'feed' && (
+          <WorkoutFeed />
         )}
       </div>
     </div>

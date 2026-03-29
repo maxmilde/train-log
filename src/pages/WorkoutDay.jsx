@@ -21,6 +21,7 @@ function normDay(day) {
     date:            day.date,
     dayType:         day.day_type ?? 'rest',
     durationMinutes: day.duration_minutes ?? null,
+    notes:           day.notes ?? '',
     submitted:       day.submitted ?? false,
     exercises: (day.exercises ?? []).map(normExercise),
   }
@@ -34,7 +35,6 @@ function normExercise(ex) {
     weightType:   ex.weight_type ?? 'single',
     goalSets:     ex.goal_sets ?? null,
     displayOrder: ex.display_order ?? 0,
-    personalBest: null,
     sets: (ex.exercise_sets ?? [])
       .sort((a, b) => a.set_number - b.set_number)
       .map(s => ({
@@ -69,7 +69,7 @@ export default function WorkoutDayPage() {
       setNames(names)
       setState(day
         ? normDay(day)
-        : { dayId: null, date, dayType: 'rest', durationMinutes: null, submitted: false, exercises: [] }
+        : { dayId: null, date, dayType: 'workout', durationMinutes: null, notes: '', submitted: false, exercises: [] }
       )
       setLoading(false)
     }).catch(err => {
@@ -103,9 +103,13 @@ export default function WorkoutDayPage() {
     finally { setSaving(false) }
   }, [user, date, state])
 
-  // Duration: only local state — saved on submit
+  // Duration & notes: only local state — saved on submit
   const handleDurationChange = useCallback((durationMinutes) => {
     setState(prev => ({ ...prev, durationMinutes }))
+  }, [])
+
+  const handleNotesChange = useCallback((notes) => {
+    setState(prev => ({ ...prev, notes }))
   }, [])
 
   const handleAddExercise = useCallback(async () => {
@@ -143,7 +147,6 @@ export default function WorkoutDayPage() {
       ),
     }))
 
-    // Fields that trigger a DB save (not personalBest — that's UI only)
     const dbFields = ['exerciseName', 'weightKg', 'weightType', 'goalSets']
     if (!dbFields.some(f => f in patch)) return
 
@@ -163,6 +166,43 @@ export default function WorkoutDayPage() {
         getExerciseNames(user.id).then(setNames)
       }
     } catch (e) { console.error(e) }
+  }, [user, state])
+
+  const handleMoveExercise = useCallback(async (fromIndex, toIndex) => {
+    setState(prev => {
+      const newExercises = [...prev.exercises]
+      const [moved] = newExercises.splice(fromIndex, 1)
+      newExercises.splice(toIndex, 0, moved)
+      return {
+        ...prev,
+        exercises: newExercises.map((ex, i) => ({ ...ex, displayOrder: i })),
+      }
+    })
+
+    try {
+      const exercises = state.exercises
+      const exA = exercises[fromIndex]
+      const exB = exercises[toIndex]
+      if (!exA || !exB) return
+      await Promise.all([
+        upsertExercise(user.id, state.dayId, {
+          id: exA.id,
+          exercise_name: exA.exerciseName,
+          weight_kg: exA.weightKg,
+          weight_type: exA.weightType,
+          goal_sets: exA.goalSets,
+          display_order: toIndex,
+        }),
+        upsertExercise(user.id, state.dayId, {
+          id: exB.id,
+          exercise_name: exB.exerciseName,
+          weight_kg: exB.weightKg,
+          weight_type: exB.weightType,
+          goal_sets: exB.goalSets,
+          display_order: fromIndex,
+        }),
+      ])
+    } catch (e) { console.error('Failed to save exercise order:', e) }
   }, [user, state])
 
   const handleDeleteExercise = useCallback(async (exerciseId) => {
@@ -250,6 +290,7 @@ export default function WorkoutDayPage() {
         date,
         day_type: state.dayType,
         duration_minutes: state.durationMinutes,
+        notes: state.notes || null,
         submitted: true,
       })
       setState(prev => ({ ...prev, dayId: day.id, submitted: true }))
@@ -265,14 +306,21 @@ export default function WorkoutDayPage() {
       setState({
         dayId: null,
         date,
-        dayType: 'rest',
+        dayType: 'workout',
         durationMinutes: null,
+        notes: '',
         submitted: false,
         exercises: [],
       })
     } catch (e) { console.error(e) }
     finally { setSaving(false) }
   }, [state, date])
+
+  // ── DATE CHANGE ─────────────────────────────────────────────────────────────
+
+  const handleDateChange = useCallback((newDate) => {
+    navigate(`/workout/${newDate}`, { replace: true })
+  }, [navigate])
 
   // ── RENDER ───────────────────────────────────────────────────────────────────
 
@@ -324,14 +372,17 @@ export default function WorkoutDayPage() {
           exerciseNames={exerciseNames}
           onDayTypeChange={handleDayTypeChange}
           onDurationChange={handleDurationChange}
+          onNotesChange={handleNotesChange}
           onAddExercise={handleAddExercise}
           onUpdateExercise={handleUpdateExercise}
           onDeleteExercise={handleDeleteExercise}
+          onMoveExercise={handleMoveExercise}
           onAddSet={handleAddSet}
           onUpdateSet={handleUpdateSet}
           onDeleteSet={handleDeleteSet}
           onSubmit={handleSubmit}
           onDeleteDay={handleDeleteDay}
+          onDateChange={handleDateChange}
         />
       </div>
     </div>
