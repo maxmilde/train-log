@@ -153,6 +153,235 @@ export async function getExerciseNames(userId) {
   return names.sort()
 }
 
+// Get usage stats for the past N days, used by the suggestion engine.
+// Returns: [{ name, sessions, totalReps, lastDate }] across all logged exercises (submitted only).
+// Also returns avgWorkoutSize: rounded average exercise count per workout day.
+export async function getSuggestionStats(userId, daysBack = 30) {
+  const since = new Date()
+  since.setDate(since.getDate() - daysBack)
+  const sinceStr = since.toISOString().split('T')[0]
+
+  // 1) Fetch ALL exercises (for the catalog of names + their typical configs)
+  const { data: allExs, error: allErr } = await supabase
+    .from('workout_exercises')
+    .select('exercise_name, weight_kg, weight_type, workout_days(date, submitted), exercise_sets(reps)')
+    .eq('user_id', userId)
+  if (allErr) throw allErr
+
+  // Aggregate into per-name buckets
+  const stats = new Map()
+  let workoutDates = new Set()
+
+  for (const ex of allExs ?? []) {
+    const name = ex.exercise_name
+    if (!name) continue
+    const day = ex.workout_days
+    if (!day?.submitted) continue
+    if (!stats.has(name)) {
+      stats.set(name, {
+        name,
+        // ALL-TIME
+        allSessions: 0,
+        // RECENT (within daysBack)
+        recentSessions: 0,
+        recentReps: 0,
+        lastDate: null,
+        // Most-used config (latest)
+        weight_kg: ex.weight_kg,
+        weight_type: ex.weight_type,
+      })
+    }
+    const s = stats.get(name)
+    s.allSessions += 1
+    if (!s.lastDate || day.date > s.lastDate) {
+      s.lastDate = day.date
+      s.weight_kg = ex.weight_kg
+      s.weight_type = ex.weight_type
+    }
+    if (day.date >= sinceStr) {
+      s.recentSessions += 1
+      s.recentReps += (ex.exercise_sets ?? []).reduce((a, ss) => a + (ss.reps ?? 0), 0)
+    }
+    workoutDates.add(day.date)
+  }
+
+  // 2) Fetch workout day count + exercise counts to compute avg workout size
+  const { data: dayCounts, error: dcErr } = await supabase
+    .from('workout_days')
+    .select('id, workout_exercises(id)')
+    .eq('user_id', userId)
+    .eq('submitted', true)
+    .eq('day_type', 'workout')
+  if (dcErr) throw dcErr
+
+  const sizes = (dayCounts ?? [])
+    .map(d => (d.workout_exercises ?? []).length)
+    .filter(n => n > 0)
+  const avgWorkoutSize = sizes.length > 0
+    ? Math.max(2, Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length))
+    : 4
+
+  return {
+    exercises: [...stats.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    avgWorkoutSize,
+  }
+}
+
+// Create a new workout day from a list of suggested exercises (just names + most-recent weight config).
+// suggestions: [{ name, weight_kg, weight_type }]. Appends to existing if today already has any.
+export async function createWorkoutFromSuggestions(userId, targetDate, suggestions) {
+  if (!suggestions || suggestions.length === 0) throw new Error('No suggestions provided')
+
+  // Ensure target day
+  const { data: existingDay, error: dayErr } = await supabase
+    .from('workout_days')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', targetDate)
+    .maybeSingle()
+  if (dayErr && dayErr.code !== 'PGRST116') throw dayErr
+
+  let targetDay = existingDay
+  if (!targetDay) {
+    const { data, error } = await supabase
+      .from('workout_days')
+      .insert({ user_id: userId, date: targetDate, day_type: 'workout' })
+      .select()
+      .single()
+    if (error) throw error
+    targetDay = data
+  }
+
+  const { data: existingExs } = await supabase
+    .from('workout_exercises')
+    .select('display_order')
+    .eq('user_id', userId)
+    .eq('workout_day_id', targetDay.id)
+  const baseOrder = (existingExs ?? []).reduce((m, e) => Math.max(m, e.display_order ?? 0), -1) + 1
+
+  const rows = suggestions.map((s, i) => ({
+    user_id: userId,
+    workout_day_id: targetDay.id,
+    exercise_name: s.name,
+    weight_kg: s.weight_kg ?? null,
+    weight_type: s.weight_type ?? 'single',
+    goal_sets: null,
+    display_order: baseOrder + i,
+  }))
+  const { error: insErr } = await supabase.from('workout_exercises').insert(rows)
+  if (insErr) throw insErr
+
+  return targetDay
+}
+
+// Copy a previous workout's exercise structure (names, weight config, goal_sets) to a target date.
+// Does NOT copy logged reps/sets — fresh sets only. Appends to existing exercises if the target day already has any.
+export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
+  // Read source exercises
+  const { data: sourceExs, error: srcErr } = await supabase
+    .from('workout_exercises')
+    .select('exercise_name, weight_kg, weight_type, goal_sets, display_order')
+    .eq('user_id', userId)
+    .eq('workout_day_id', sourceDayId)
+    .order('display_order', { ascending: true })
+  if (srcErr) throw srcErr
+  if (!sourceExs || sourceExs.length === 0) throw new Error('Source workout has no exercises')
+
+  // Ensure target day exists (default day_type=workout)
+  const { data: existingDay, error: dayErr } = await supabase
+    .from('workout_days')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', targetDate)
+    .maybeSingle()
+  if (dayErr && dayErr.code !== 'PGRST116') throw dayErr
+
+  let targetDay = existingDay
+  if (!targetDay) {
+    const { data, error } = await supabase
+      .from('workout_days')
+      .insert({ user_id: userId, date: targetDate, day_type: 'workout' })
+      .select()
+      .single()
+    if (error) throw error
+    targetDay = data
+  }
+
+  // Find current max display_order at target so we append, not overwrite
+  const { data: existingExs } = await supabase
+    .from('workout_exercises')
+    .select('display_order')
+    .eq('user_id', userId)
+    .eq('workout_day_id', targetDay.id)
+  const baseOrder = (existingExs ?? []).reduce((m, e) => Math.max(m, e.display_order ?? 0), -1) + 1
+
+  const rows = sourceExs.map((ex, i) => ({
+    user_id: userId,
+    workout_day_id: targetDay.id,
+    exercise_name: ex.exercise_name,
+    weight_kg: ex.weight_kg,
+    weight_type: ex.weight_type,
+    goal_sets: ex.goal_sets,
+    display_order: baseOrder + i,
+  }))
+  const { error: insErr } = await supabase.from('workout_exercises').insert(rows)
+  if (insErr) throw insErr
+
+  return targetDay
+}
+
+// Catalog: list all unique exercises with usage stats
+export async function getExerciseCatalog(userId) {
+  const { data, error } = await supabase
+    .from('workout_exercises')
+    .select('exercise_name, weight_type, weight_kg, workout_days(date, submitted), exercise_sets(reps)')
+    .eq('user_id', userId)
+  if (error) throw error
+
+  const map = new Map()
+  for (const ex of data ?? []) {
+    const name = ex.exercise_name
+    if (!name) continue
+    const day = ex.workout_days
+    if (!day?.submitted) continue
+    if (!map.has(name)) {
+      map.set(name, { name, sessions: 0, lastDate: null, totalReps: 0, configs: new Set() })
+    }
+    const entry = map.get(name)
+    entry.sessions += 1
+    if (!entry.lastDate || day.date > entry.lastDate) entry.lastDate = day.date
+    entry.totalReps += (ex.exercise_sets ?? []).reduce((a, s) => a + (s.reps ?? 0), 0)
+    if (ex.weight_type === 'bodyweight') entry.configs.add('BW')
+    else if (ex.weight_type === 'double') entry.configs.add(`2×${ex.weight_kg}kg`)
+    else entry.configs.add(`${ex.weight_kg}kg`)
+  }
+  return [...map.values()]
+    .map(e => ({ ...e, configs: [...e.configs] }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// Rename exercise across ALL of the user's workout_exercises rows
+export async function renameExercise(userId, oldName, newName) {
+  if (!oldName || !newName || oldName === newName) return
+  const { error } = await supabase
+    .from('workout_exercises')
+    .update({ exercise_name: newName })
+    .eq('user_id', userId)
+    .eq('exercise_name', oldName)
+  if (error) throw error
+}
+
+// Delete ALL workout_exercises rows for this user with the given name.
+// exercise_sets cascade-delete via FK. workout_days are NOT deleted.
+export async function deleteExerciseByName(userId, name) {
+  const { error } = await supabase
+    .from('workout_exercises')
+    .delete()
+    .eq('user_id', userId)
+    .eq('exercise_name', name)
+  if (error) throw error
+}
+
 export async function getPersonalBest(userId, exerciseName, weightType, weightKg) {
   if (!exerciseName) return null
   let query = supabase

@@ -33,3 +33,7 @@ input[type='number'] {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Hide scrollbar utility (used in Progress tab pills) */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }

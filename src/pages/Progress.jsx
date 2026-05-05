@@ -5,12 +5,16 @@ import DurationChart from '../components/dashboard/DurationChart'
 import MonthlyChart from '../components/progress/Charts'
 import ExerciseHistory from '../components/progress/ExerciseHistory'
 import WorkoutFeed from '../components/progress/WorkoutFeed'
+import ExerciseCatalog from '../components/progress/ExerciseCatalog'
+import WorkoutSuggest from '../components/progress/WorkoutSuggest'
 
 const VIEWS = [
   { id: 'duration', label: 'Duration' },
   { id: 'monthly',  label: 'Monthly' },
   { id: 'exercise', label: 'Exercise' },
   { id: 'feed',     label: 'Feed' },
+  { id: 'catalog',  label: 'Catalog' },
+  { id: 'suggest',  label: 'Suggest' },
 ]
 
 export default function ProgressPage() {
@@ -63,13 +67,13 @@ export default function ProgressPage() {
       >
         <h2 className="text-xl font-bold text-gray-100 mb-3">Progress</h2>
 
-        {/* Tab pills */}
-        <div className="flex bg-gray-800 rounded-xl p-1 gap-1">
+        {/* Tab pills — scrollable so 6 tabs fit on mobile */}
+        <div className="flex bg-gray-800 rounded-xl p-1 gap-1 overflow-x-auto scrollbar-none">
           {VIEWS.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setActiveView(id)}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors
+              className={`py-2.5 px-3 rounded-lg text-sm font-medium transition-colors flex-shrink-0
                 ${activeView === id
                   ? 'bg-green-600 text-white'
                   : 'text-gray-400 hover:text-gray-300'}`}
@@ -126,6 +130,14 @@ export default function ProgressPage() {
 
         {activeView === 'feed' && (
           <WorkoutFeed />
+        )}
+
+        {activeView === 'catalog' && (
+          <ExerciseCatalog />
+        )}
+
+        {activeView === 'suggest' && (
+          <WorkoutSuggest />
         )}
       </div>
     </div>

@@ -1,17 +1,40 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { getWorkoutFeed } from '../../lib/db'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { getWorkoutFeed, copyWorkoutToDate } from '../../lib/db'
+import { toDateStr } from '../../lib/utils'
+import { ChevronDown, ChevronUp, Copy } from 'lucide-react'
 
 const PAGE_SIZE = 20
 
 export default function WorkoutFeed() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [workouts, setWorkouts] = useState([])
   const [loading, setLoading]   = useState(true)
   const [hasMore, setHasMore]   = useState(true)
   const [expanded, setExpanded] = useState({})
+  const [copyingId, setCopyingId] = useState(null)
   const loaderRef = useRef(null)
+
+  const handleCopy = useCallback(async (workout, e) => {
+    e.stopPropagation()
+    if (!user) return
+    const today = toDateStr(new Date())
+    const ok = window.confirm(
+      `Copy ${workout.workout_exercises?.length || 0} exercise${workout.workout_exercises?.length !== 1 ? 's' : ''} from ${workout.date} to today?`
+    )
+    if (!ok) return
+    setCopyingId(workout.id)
+    try {
+      await copyWorkoutToDate(user.id, workout.id, today)
+      navigate('/workout')
+    } catch (err) {
+      alert('Copy failed: ' + err.message)
+    } finally {
+      setCopyingId(null)
+    }
+  }, [user, navigate])
 
   const loadMore = useCallback(async (reset = false) => {
     if (!user) return
@@ -144,6 +167,22 @@ export default function WorkoutFeed() {
                     </div>
                   )
                 })}
+                {/* Copy to today */}
+                {isWorkout && exercises.length > 0 && (
+                  <div className="pt-2 border-t border-gray-700">
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopy(w, e)}
+                      disabled={copyingId === w.id}
+                      className="w-full py-2.5 rounded-xl bg-gray-700 active:bg-gray-600
+                                 text-sm text-gray-200 font-medium
+                                 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      <Copy size={14} />
+                      {copyingId === w.id ? 'Copying…' : 'Copy to today'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </button>

@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -103,14 +103,59 @@ export default function WorkoutDayPage() {
     finally { setSaving(false) }
   }, [user, date, state])
 
-  // Duration & notes: only local state — saved on submit
+  // Duration: only local state — saved on submit
   const handleDurationChange = useCallback((durationMinutes) => {
     setState(prev => ({ ...prev, durationMinutes }))
   }, [])
 
+  // Keep latest state available to async closures (debounced save, visibilitychange)
+  const stateRef = useRef(null)
+  stateRef.current = state
+
+  // Persist current state's notes to DB (creates day row if missing)
+  const persistNotes = useCallback(async () => {
+    const st = stateRef.current
+    if (!user || !st) return
+    try {
+      const dayId = st.dayId ?? await ensureDay(st)
+      await upsertDay(user.id, {
+        date: st.date,
+        day_type: st.dayType,
+        duration_minutes: st.durationMinutes,
+        notes: st.notes || null,
+      })
+      if (!st.dayId) {
+        setState(prev => prev ? { ...prev, dayId } : prev)
+      }
+    } catch (e) { console.error('Save notes:', e) }
+  }, [user, ensureDay])
+
+  // Notes: optimistic local update + debounced DB save (~800ms idle)
+  const notesTimerRef = useRef(null)
   const handleNotesChange = useCallback((notes) => {
     setState(prev => ({ ...prev, notes }))
-  }, [])
+    if (notesTimerRef.current) clearTimeout(notesTimerRef.current)
+    notesTimerRef.current = setTimeout(() => {
+      notesTimerRef.current = null
+      persistNotes()
+    }, 800)
+  }, [persistNotes])
+
+  // Flush pending notes-save when tab is backgrounded or page unmounts
+  useEffect(() => {
+    const flush = () => {
+      if (notesTimerRef.current) {
+        clearTimeout(notesTimerRef.current)
+        notesTimerRef.current = null
+        persistNotes()
+      }
+    }
+    document.addEventListener('visibilitychange', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', flush)
+      flush()
+    }
+  }, [persistNotes])
 
   const handleAddExercise = useCallback(async () => {
     try {

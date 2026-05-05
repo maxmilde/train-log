@@ -7,14 +7,15 @@ export default function FloatingTimerBar() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const isActive = phase === PHASE.WORK || phase === PHASE.REST
+  const isActive = phase === PHASE.WORK || phase === PHASE.REST || phase === PHASE.PRE
   const onTimerPage = location.pathname === '/timer'
 
   if (!isActive || onTimerPage) return null
 
   const isWork = phase === PHASE.WORK
-  const barColor = isWork ? 'bg-green-600' : 'bg-blue-600'
-  const label = isWork ? 'WORK' : 'REST'
+  const isPre  = phase === PHASE.PRE
+  const barColor = isPre ? 'bg-yellow-600' : isWork ? 'bg-green-600' : 'bg-blue-600'
+  const label = isPre ? 'GET READY' : isWork ? 'WORK' : 'REST'
 
   return (
     <div
@@ -32,7 +33,9 @@ export default function FloatingTimerBar() {
           <span className="text-lg font-mono font-bold text-white tabular-nums">{formatTime(remaining)}</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-white/70">R{currentRound}/{config.rounds}</span>
+          {!isPre && (
+            <span className="text-xs text-white/70">R{currentRound}/{config.rounds}</span>
+          )}
           <span
             onClick={e => { e.stopPropagation(); pauseResume() }}
             className="text-xs font-semibold text-white bg-white/20 rounded-lg px-3 py-1.5

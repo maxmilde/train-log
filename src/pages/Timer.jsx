@@ -8,21 +8,29 @@ export default function TimerPage() {
   } = useTimer()
 
   const isIdle = phase === PHASE.IDLE
+  const isPre  = phase === PHASE.PRE
   const isDone = phase === PHASE.DONE
   const isWork = phase === PHASE.WORK
   const isRest = phase === PHASE.REST
+  const showConfig = !isDone  // configurable in idle, pre, work, rest
 
-  const total = isWork ? config.workSecs : isRest ? config.restSecs : 1
+  const total = isWork ? config.workSecs : isRest ? config.restSecs : isPre ? 5 : 1
   const progress = isIdle || isDone ? 0 : 1 - (remaining / total)
   const circumference = 2 * Math.PI * 100
   const strokeDashoffset = circumference * (1 - progress)
 
   const phaseColor = {
     [PHASE.IDLE]: '#4b5563',
+    [PHASE.PRE]:  '#eab308',
     [PHASE.WORK]: '#22c55e',
     [PHASE.REST]: '#3b82f6',
     [PHASE.DONE]: '#eab308',
   }[phase]
+
+  const phaseLabel = isDone ? 'Done!'
+    : isIdle ? 'Ready'
+    : isPre  ? 'Get ready'
+    : phase
 
   return (
     <div
@@ -35,18 +43,20 @@ export default function TimerPage() {
 
       <div className="flex-1 flex flex-col items-center justify-between px-6 overflow-y-auto">
 
-        {isIdle && (
+        {showConfig && (
           <div className="w-full space-y-3 pt-2">
             <ConfigRow
               label="Work"
               unit="sec"
               value={config.workSecs}
+              highlighted={isWork}
               onChange={v => updateConfig('workSecs', v)}
             />
             <ConfigRow
               label="Rest"
               unit="sec"
               value={config.restSecs}
+              highlighted={isRest}
               onChange={v => updateConfig('restSecs', v)}
             />
             <ConfigRow
@@ -72,12 +82,12 @@ export default function TimerPage() {
 
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <p className="text-sm font-semibold uppercase tracking-widest" style={{ color: phaseColor }}>
-                {isDone ? 'Done!' : isIdle ? 'Ready' : phase}
+                {phaseLabel}
               </p>
               <p className="text-6xl font-mono font-bold text-gray-100 tabular-nums leading-tight">
                 {isDone ? '0:00' : formatTime(remaining)}
               </p>
-              {!isIdle && !isDone && (
+              {!isIdle && !isDone && !isPre && (
                 <p className="text-xs text-gray-500 mt-1">
                   Round {currentRound} / {config.rounds}
                 </p>
@@ -85,7 +95,7 @@ export default function TimerPage() {
             </div>
           </div>
 
-          {!isIdle && !isDone && (
+          {!isIdle && !isDone && !isPre && (
             <div className="flex gap-1.5 flex-wrap justify-center max-w-[240px]">
               {Array.from({ length: config.rounds }).map((_, i) => (
                 <span
@@ -110,7 +120,7 @@ export default function TimerPage() {
           {isDone && (
             <BigButton onClick={reset} color="gray">Reset</BigButton>
           )}
-          {(isWork || isRest) && (
+          {(isWork || isRest || isPre) && (
             <>
               <BigButton onClick={pauseResume} color={running ? 'yellow' : 'green'}>
                 {running ? 'Pause' : 'Resume'}
@@ -124,9 +134,12 @@ export default function TimerPage() {
   )
 }
 
-function ConfigRow({ label, unit, value, onChange }) {
+function ConfigRow({ label, unit, value, onChange, highlighted = false }) {
   return (
-    <div className="flex items-center gap-4 bg-gray-800 rounded-2xl px-5 py-4">
+    <div
+      className={`flex items-center gap-4 rounded-2xl px-5 py-4 transition-colors
+        ${highlighted ? 'bg-gray-800 ring-1 ring-green-500/30' : 'bg-gray-800'}`}
+    >
       <span className="text-gray-300 text-base font-medium w-16 flex-shrink-0">{label}</span>
       <div className="flex items-center gap-3 ml-auto">
         <button
