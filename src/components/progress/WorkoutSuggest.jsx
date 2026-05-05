@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getSuggestionStats, createWorkoutFromSuggestions } from '../../lib/db'
+import { supabase } from '../../lib/supabase'
 import { toDateStr } from '../../lib/utils'
 import { Sparkles, Wand2, RefreshCw } from 'lucide-react'
 
@@ -22,60 +23,28 @@ function pickWithoutAI(pool, count, today) {
   return ranked
 }
 
+// Calls the 'suggest' Supabase Edge Function (server-side Anthropic key).
 async function pickWithAI(pool, count, recentLog) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
-  if (!apiKey) {
-    throw new Error('No Anthropic API key configured. Add VITE_ANTHROPIC_API_KEY to your .env.local file to enable AI suggestions.')
-  }
   const promptPool = pool.map(e => ({
     name: e.name,
     recent_sessions_30d: e.recentSessions,
     recent_total_reps_30d: e.recentReps,
     last_done: e.lastDate,
   }))
-  const body = {
-    model: 'claude-sonnet-4-5-20250929',
-    max_tokens: 512,
-    messages: [{
-      role: 'user',
-      content:
-`You are suggesting ${count} kettlebell/bodyweight exercises for the user's next workout.
 
-Selected exercise pool (with recent usage stats):
-${JSON.stringify(promptPool, null, 2)}
-
-Recent workouts (last 5 sessions):
-${JSON.stringify(recentLog, null, 2)}
-
-Pick exactly ${count} exercises from the pool above. Prioritize:
-1. Exercises the user has done LESS RECENTLY or LESS OFTEN
-2. Variety — try not to pick exercises that hit identical movement patterns
-3. Balance push/pull/squat/hinge/carry where possible
-
-Respond with ONLY a JSON array of exercise names (strings), no commentary. Example: ["Pushups", "Long Cycle", "Pullups"]`
-    }],
-  }
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
+  const { data, error } = await supabase.functions.invoke('suggest', {
+    body: { pool: promptPool, count, recentLog },
   })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(`AI request failed (${res.status}): ${txt}`)
+
+  if (error) {
+    // Common case: function not deployed yet
+    const msg = error.message?.includes('Failed to send')
+      ? 'AI suggest is not set up yet. Deploy the supabase/functions/suggest Edge Function and add ANTHROPIC_API_KEY to Supabase secrets.'
+      : `AI request failed: ${error.message}`
+    throw new Error(msg)
   }
-  const data = await res.json()
-  const text = data?.content?.[0]?.text ?? '[]'
-  // Extract JSON array
-  const match = text.match(/\[[\s\S]*?\]/)
-  if (!match) throw new Error('AI response not parseable')
-  const names = JSON.parse(match[0])
+  if (data?.error) throw new Error(data.error)
+  const names = data?.names ?? []
   return pool.filter(e => names.includes(e.name)).slice(0, count)
 }
 
