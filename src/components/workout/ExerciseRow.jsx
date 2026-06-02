@@ -122,19 +122,19 @@ export default function ExerciseRow({
           </>
         )}
 
-        {/* Goal sets */}
+        {/* Goal reps */}
         <div className="flex-shrink-0">
           <input
             type="number"
             inputMode="numeric"
-            value={exercise.goalSets ?? ''}
-            onChange={e => onUpdate({ goalSets: e.target.value === '' ? null : Number(e.target.value) })}
+            value={exercise.goalReps ?? ''}
+            onChange={e => onUpdate({ goalReps: e.target.value === '' ? null : Number(e.target.value) })}
             placeholder="Goal"
             className="w-16 rounded-lg bg-gray-900 border border-gray-700
                        px-2 py-2 text-gray-400 text-center text-sm min-h-[40px]
                        focus:outline-none focus:border-green-500"
           />
-          <p className="text-[9px] text-gray-600 text-center mt-0.5">sets goal</p>
+          <p className="text-[9px] text-gray-600 text-center mt-0.5">reps goal</p>
         </div>
       </div>
 
@@ -178,16 +178,15 @@ export default function ExerciseRow({
           + Add set
         </button>
 
-        {exercise.goalSets && exercise.goalSets > 0 && (
-          <span className={`text-xs font-medium ${
-            exercise.sets.length >= exercise.goalSets
-              ? 'text-green-400'
-              : 'text-gray-500'
-          }`}>
-            {exercise.sets.length}/{exercise.goalSets} sets
-            {exercise.sets.length >= exercise.goalSets ? ' ✓' : ''}
-          </span>
-        )}
+        {exercise.goalReps && exercise.goalReps > 0 && (() => {
+          const totalReps = exercise.sets.reduce((a, s) => a + (s.reps ?? 0), 0)
+          const hit = totalReps >= exercise.goalReps
+          return (
+            <span className={`text-xs font-medium ${hit ? 'text-green-400' : 'text-gray-500'}`}>
+              {totalReps}/{exercise.goalReps} reps{hit ? ' ✓' : ''}
+            </span>
+          )
+        })()}
       </div>
     </div>
   )

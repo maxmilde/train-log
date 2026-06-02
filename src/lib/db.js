@@ -81,14 +81,14 @@ export async function deleteDay(dayId) {
 // ── WORKOUT EXERCISES ───────────────────────────────────────────────────────────
 
 export async function upsertExercise(userId, workoutDayId, exercise) {
-  const { id, exercise_name, weight_kg, weight_type, goal_sets, display_order } = exercise
+  const { id, exercise_name, weight_kg, weight_type, goal_reps, display_order } = exercise
   const payload = {
     user_id: userId,
     workout_day_id: workoutDayId,
     exercise_name,
     weight_kg,
     weight_type,
-    goal_sets,
+    goal_reps,
     display_order: display_order ?? 0,
   }
   if (id) payload.id = id
@@ -267,7 +267,7 @@ export async function createWorkoutFromSuggestions(userId, targetDate, suggestio
     exercise_name: s.name,
     weight_kg: s.weight_kg ?? null,
     weight_type: s.weight_type ?? 'single',
-    goal_sets: null,
+    goal_reps: null,
     display_order: baseOrder + i,
   }))
   const { error: insErr } = await supabase.from('workout_exercises').insert(rows)
@@ -276,13 +276,13 @@ export async function createWorkoutFromSuggestions(userId, targetDate, suggestio
   return targetDay
 }
 
-// Copy a previous workout's exercise structure (names, weight config, goal_sets) to a target date.
+// Copy a previous workout's exercise structure (names, weight config, goal_reps) to a target date.
 // Does NOT copy logged reps/sets — fresh sets only. Appends to existing exercises if the target day already has any.
 export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
   // Read source exercises
   const { data: sourceExs, error: srcErr } = await supabase
     .from('workout_exercises')
-    .select('exercise_name, weight_kg, weight_type, goal_sets, display_order')
+    .select('exercise_name, weight_kg, weight_type, goal_reps, display_order')
     .eq('user_id', userId)
     .eq('workout_day_id', sourceDayId)
     .order('display_order', { ascending: true })
@@ -323,7 +323,7 @@ export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
     exercise_name: ex.exercise_name,
     weight_kg: ex.weight_kg,
     weight_type: ex.weight_type,
-    goal_sets: ex.goal_sets,
+    goal_reps: ex.goal_reps,
     display_order: baseOrder + i,
   }))
   const { error: insErr } = await supabase.from('workout_exercises').insert(rows)
