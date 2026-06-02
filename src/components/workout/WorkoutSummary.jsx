@@ -3,28 +3,30 @@ import { Trophy, Clock } from 'lucide-react'
 export default function WorkoutSummary({ exercises, durationMinutes }) {
   if (!exercises || exercises.length === 0) return null
 
-  // Group exercises by name + weight configuration
+  // Group by (name, weight_type, effective_weight) so mixed-weight sessions
+  // appear as separate rows: "2x24kg Long Cycle: 10" + "2x28kg Long Cycle: 6"
   const groups = []
   const groupMap = new Map()
 
   for (const ex of exercises) {
     if (!ex.exerciseName) continue
-    const key = `${ex.exerciseName}|${ex.weightType}|${ex.weightKg ?? 'bw'}`
+    const isBW = ex.weightType === 'bodyweight'
+    for (const set of ex.sets) {
+      const effectiveKg = isBW ? null : (set.weightKg ?? ex.weightKg)
+      const key = `${ex.exerciseName}|${ex.weightType}|${effectiveKg ?? 'bw'}`
 
-    if (!groupMap.has(key)) {
-      const group = {
-        exerciseName: ex.exerciseName,
-        weightType: ex.weightType,
-        weightKg: ex.weightKg,
-        totalReps: 0,
+      if (!groupMap.has(key)) {
+        const group = {
+          exerciseName: ex.exerciseName,
+          weightType: ex.weightType,
+          weightKg: effectiveKg,
+          totalReps: 0,
+        }
+        groupMap.set(key, group)
+        groups.push(group)
       }
-      groupMap.set(key, group)
-      groups.push(group)
+      groupMap.get(key).totalReps += (set.reps ?? 0)
     }
-
-    const group = groupMap.get(key)
-    const setReps = ex.sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
-    group.totalReps += setReps
   }
 
   if (groups.length === 0) return null

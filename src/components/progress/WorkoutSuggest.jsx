@@ -1,51 +1,69 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getSuggestionStats, createWorkoutFromSuggestions } from '../../lib/db'
-import { supabase } from '../../lib/supabase'
 import { toDateStr } from '../../lib/utils'
-import { Sparkles, Wand2, RefreshCw } from 'lucide-react'
+import { Sparkles, RefreshCw } from 'lucide-react'
+
+// Exercises that should NOT be checked by default in the suggestion pool.
+// Matched case-insensitively against trimmed exercise names.
+const DEFAULT_EXCLUDED = new Set([
+  '1 pump', '2 pump', '3 pump',
+  'high pulls',
+  'navy seal pushup',
+  'skull crusher',
+  'steps',
+  'swing',
+  'tricep pushups',
+].map(s => s.toLowerCase()))
+
+function isDefaultExcluded(name) {
+  return DEFAULT_EXCLUDED.has((name ?? '').trim().toLowerCase())
+}
 
 // Score: lower = higher priority for suggestion
 function rankExercise(ex, today) {
   const last = ex.lastDate ? new Date(ex.lastDate + 'T00:00:00') : null
   const daysSince = last ? Math.floor((today - last) / 86400000) : 9999
-  // Heavily penalize recent use
   return ex.recentSessions * 1000 + ex.recentReps * 0.1 - daysSince
 }
 
-function pickWithoutAI(pool, count, today) {
-  const ranked = [...pool]
-    .map(e => ({ e, score: rankExercise(e, today) }))
-    .sort((a, b) => a.score - b.score)
-    .slice(0, count)
-    .map(x => x.e)
-  return ranked
+// Stable shuffle via Fisher–Yates
+function shuffle(arr) {
+  const out = [...arr]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
 }
 
-// Calls the 'suggest' Supabase Edge Function (server-side Anthropic key).
-async function pickWithAI(pool, count, recentLog) {
-  const promptPool = pool.map(e => ({
-    name: e.name,
-    recent_sessions_30d: e.recentSessions,
-    recent_total_reps_30d: e.recentReps,
-    last_done: e.lastDate,
-  }))
+/**
+ * Pick `count` exercises from the pool:
+ *  - Rank by least-used (current algorithm)
+ *  - Take the top `count * 2` candidates
+ *  - Shuffle them and pick `count`
+ *  - Ensure result is not identical (as a set) to `lastResultKey`
+ */
+function pickSuggestions(pool, count, lastResultKey) {
+  if (pool.length === 0) return []
+  const ranked = [...pool]
+    .map(e => ({ e, score: rankExercise(e, new Date()) }))
+    .sort((a, b) => a.score - b.score)
+    .map(x => x.e)
 
-  const { data, error } = await supabase.functions.invoke('suggest', {
-    body: { pool: promptPool, count, recentLog },
-  })
+  const poolSize = Math.min(ranked.length, Math.max(count * 2, count + 1))
+  const candidates = ranked.slice(0, poolSize)
 
-  if (error) {
-    // Common case: function not deployed yet
-    const msg = error.message?.includes('Failed to send')
-      ? 'AI suggest is not set up yet. Deploy the supabase/functions/suggest Edge Function and add ANTHROPIC_API_KEY to Supabase secrets.'
-      : `AI request failed: ${error.message}`
-    throw new Error(msg)
+  // Try up to 6 shuffles to find a different combination than last time
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const picked = shuffle(candidates).slice(0, count)
+    const key = picked.map(p => p.name).sort().join('|')
+    if (key !== lastResultKey || candidates.length <= count) {
+      return picked
+    }
   }
-  if (data?.error) throw new Error(data.error)
-  const names = data?.names ?? []
-  return pool.filter(e => names.includes(e.name)).slice(0, count)
+  return shuffle(candidates).slice(0, count)
 }
 
 export default function WorkoutSuggest() {
@@ -56,8 +74,8 @@ export default function WorkoutSuggest() {
   const [selectedPool, setSelectedPool] = useState(new Set())
   const [suggestions, setSuggestions] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [aiBusy, setAiBusy] = useState(false)
   const [error, setError] = useState(null)
+  const lastResultKeyRef = useRef(null)
 
   useEffect(() => {
     if (!user) return
@@ -65,8 +83,11 @@ export default function WorkoutSuggest() {
     getSuggestionStats(user.id, 30)
       .then(s => {
         setStats(s)
-        // Default: select all exercises into the pool
-        setSelectedPool(new Set(s.exercises.map(e => e.name)))
+        // Default selection: everything EXCEPT the default-excluded names
+        const defaults = new Set(
+          s.exercises.map(e => e.name).filter(n => !isDefaultExcluded(n))
+        )
+        setSelectedPool(defaults)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -86,6 +107,12 @@ export default function WorkoutSuggest() {
     setSelectedPool(new Set(stats.exercises.map(e => e.name)))
   }
   const selectNone = () => setSelectedPool(new Set())
+  const resetDefaults = () => {
+    if (!stats) return
+    setSelectedPool(new Set(
+      stats.exercises.map(e => e.name).filter(n => !isDefaultExcluded(n))
+    ))
+  }
 
   const generate = useCallback(() => {
     if (!stats) return
@@ -93,39 +120,17 @@ export default function WorkoutSuggest() {
     setBusy(true)
     try {
       const pool = stats.exercises.filter(e => selectedPool.has(e.name))
-      if (pool.length === 0) { setError('Select at least one exercise'); setSuggestions(null); return }
+      if (pool.length === 0) {
+        setError('Select at least one exercise')
+        setSuggestions(null)
+        return
+      }
       const count = Math.min(stats.avgWorkoutSize, pool.length)
-      const picks = pickWithoutAI(pool, count, new Date())
+      const picks = pickSuggestions(pool, count, lastResultKeyRef.current)
+      lastResultKeyRef.current = picks.map(p => p.name).sort().join('|')
       setSuggestions(picks)
     } finally {
       setBusy(false)
-    }
-  }, [stats, selectedPool])
-
-  const generateAI = useCallback(async () => {
-    if (!stats) return
-    setError(null)
-    setAiBusy(true)
-    try {
-      const pool = stats.exercises.filter(e => selectedPool.has(e.name))
-      if (pool.length === 0) { setError('Select at least one exercise'); return }
-      const count = Math.min(stats.avgWorkoutSize, pool.length)
-      // Recent workout log for context — last 5 entries (just names + dates)
-      const recentLog = pool
-        .filter(e => e.lastDate)
-        .sort((a, b) => (b.lastDate ?? '').localeCompare(a.lastDate ?? ''))
-        .slice(0, 5)
-        .map(e => ({ name: e.name, last_date: e.lastDate }))
-      const picks = await pickWithAI(pool, count, recentLog)
-      if (picks.length === 0) {
-        setError('AI returned no valid suggestions')
-        return
-      }
-      setSuggestions(picks)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setAiBusy(false)
     }
   }, [stats, selectedPool])
 
@@ -176,7 +181,7 @@ export default function WorkoutSuggest() {
           <h3 className="text-sm font-semibold text-gray-200">Workout Suggestions</h3>
         </div>
         <p className="text-xs text-gray-500">
-          Picks {stats.avgWorkoutSize} exercise{stats.avgWorkoutSize !== 1 ? 's' : ''} (your average) from your selected pool, prioritizing what you've done less in the last 30 days.
+          Picks {stats.avgWorkoutSize} exercise{stats.avgWorkoutSize !== 1 ? 's' : ''} (your average) from your selected pool, prioritizing what you've done less in the last 30 days. Tap Suggest again for a different combo.
         </p>
       </div>
 
@@ -187,9 +192,15 @@ export default function WorkoutSuggest() {
           <div className="flex gap-2">
             <button
               type="button"
+              onClick={resetDefaults}
+              className="text-[11px] text-purple-400 active:text-purple-300"
+              title="Reset to default selection"
+            >Reset</button>
+            <button
+              type="button"
               onClick={selectAll}
               className="text-[11px] text-blue-400 active:text-blue-300"
-            >Select all</button>
+            >All</button>
             <button
               type="button"
               onClick={selectNone}
@@ -218,31 +229,18 @@ export default function WorkoutSuggest() {
         </div>
       </div>
 
-      {/* Generate buttons */}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={generate}
-          disabled={busy || aiBusy}
-          className="flex-1 py-3 rounded-xl bg-green-600 text-white text-sm font-semibold
-                     active:bg-green-500 disabled:opacity-50
-                     flex items-center justify-center gap-2"
-        >
-          <RefreshCw size={14} />
-          Suggest
-        </button>
-        <button
-          type="button"
-          onClick={generateAI}
-          disabled={busy || aiBusy}
-          className="flex-1 py-3 rounded-xl bg-purple-600 text-white text-sm font-semibold
-                     active:bg-purple-500 disabled:opacity-50
-                     flex items-center justify-center gap-2"
-        >
-          <Wand2 size={14} />
-          {aiBusy ? 'Thinking…' : 'AI Suggest'}
-        </button>
-      </div>
+      {/* Generate button */}
+      <button
+        type="button"
+        onClick={generate}
+        disabled={busy}
+        className="w-full py-3 rounded-xl bg-green-600 text-white text-sm font-semibold
+                   active:bg-green-500 disabled:opacity-50
+                   flex items-center justify-center gap-2"
+      >
+        <RefreshCw size={14} />
+        {suggestions ? 'Suggest different' : 'Suggest'}
+      </button>
 
       {error && (
         <div className="bg-red-950 border border-red-900 rounded-xl px-4 py-3">

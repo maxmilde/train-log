@@ -8,7 +8,7 @@ import LoginPage from './pages/Login'
 import DashboardPage from './pages/Dashboard'
 import WorkoutDayPage from './pages/WorkoutDay'
 import TimerPage from './pages/Timer'
-import ProgressPage from './pages/Progress'
+import LibraryPage from './pages/Library'
 import SetPasswordPage from './pages/SetPassword'
 
 function AppShell() {
@@ -54,7 +54,9 @@ export default function App() {
         <Route path="workout" element={<WorkoutDayPage />} />
         <Route path="workout/:date" element={<WorkoutDayPage />} />
         <Route path="timer" element={<TimerPage />} />
-        <Route path="progress" element={<ProgressPage />} />
+        <Route path="library" element={<LibraryPage />} />
+        {/* Legacy alias so old /progress links still work */}
+        <Route path="progress" element={<Navigate to="/library" replace />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

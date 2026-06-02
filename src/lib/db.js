@@ -113,7 +113,7 @@ export async function deleteExercise(exerciseId) {
 // ── EXERCISE SETS ───────────────────────────────────────────────────────────────
 
 export async function upsertSet(userId, workoutExerciseId, set) {
-  const { id, set_number, reps, duration_seconds } = set
+  const { id, set_number, reps, duration_seconds, weight_kg } = set
   const payload = {
     user_id: userId,
     workout_exercise_id: workoutExerciseId,
@@ -121,6 +121,8 @@ export async function upsertSet(userId, workoutExerciseId, set) {
     reps,
     duration_seconds,
   }
+  // weight_kg is optional per-set override; only include if explicitly provided
+  if (weight_kg !== undefined) payload.weight_kg = weight_kg
   if (id) payload.id = id
 
   const { data, error } = await supabase
@@ -382,17 +384,20 @@ export async function deleteExerciseByName(userId, name) {
   if (error) throw error
 }
 
+// PBs now respect per-set weight overrides:
+//   - Each set's "effective weight" is set.weight_kg if present, otherwise the exercise's weight_kg.
+//   - For target (name, weightType, weightKg), include only sets whose effective weight matches weightKg.
+//   - Session totals are summed over the matching sets within that exercise instance.
 export async function getPersonalBest(userId, exerciseName, weightType, weightKg) {
   if (!exerciseName) return null
   let query = supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, exercise_sets(reps)')
+    .select('id, weight_kg, weight_type, exercise_sets(reps, weight_kg)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
 
-  // Filter by weight configuration so 1×24kg and 2×24kg have separate PBs
   if (weightType && weightType !== 'bodyweight') {
-    query = query.eq('weight_type', weightType).eq('weight_kg', weightKg)
+    query = query.eq('weight_type', weightType)
   } else if (weightType === 'bodyweight') {
     query = query.eq('weight_type', 'bodyweight')
   }
@@ -401,13 +406,19 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
   if (error) throw error
   if (!data || data.length === 0) return null
 
-  let maxTotalReps = 0      // best total reps in a single session
-  let maxSingleSetReps = 0  // best reps in any single set ever
+  let maxTotalReps = 0      // best total reps in a single session AT THIS WEIGHT
+  let maxSingleSetReps = 0  // best reps in any single set ever AT THIS WEIGHT
 
   for (const ex of data) {
-    const sets = ex.exercise_sets ?? []
-    const sessionTotal = sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
-    const sessionMax = sets.length > 0 ? Math.max(...sets.map(s => s.reps ?? 0)) : 0
+    const exerciseDefaultWeight = ex.weight_kg
+    const matchingSets = (ex.exercise_sets ?? []).filter(s => {
+      const effective = s.weight_kg ?? exerciseDefaultWeight
+      if (weightType === 'bodyweight') return true
+      return effective === weightKg
+    })
+    if (matchingSets.length === 0) continue
+    const sessionTotal = matchingSets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
+    const sessionMax = Math.max(...matchingSets.map(s => s.reps ?? 0))
     if (sessionTotal > maxTotalReps) maxTotalReps = sessionTotal
     if (sessionMax > maxSingleSetReps) maxSingleSetReps = sessionMax
   }
@@ -423,7 +434,7 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
 export async function getWorkoutFeed(userId, { limit = 20, offset = 0 } = {}) {
   const { data, error } = await supabase
     .from('workout_days')
-    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps))')
+    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps, weight_kg, set_number))')
     .eq('user_id', userId)
     .eq('submitted', true)
     .order('date', { ascending: false })
@@ -436,7 +447,7 @@ export async function getExerciseHistory(userId, exerciseName) {
   if (!exerciseName) return []
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, duration_seconds)')
+    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, duration_seconds, weight_kg)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
     .order('created_at', { ascending: true })
@@ -445,6 +456,10 @@ export async function getExerciseHistory(userId, exerciseName) {
     date: ex.workout_days?.date,
     weight_kg: ex.weight_kg,
     weight_type: ex.weight_type,
-    sets: ex.exercise_sets ?? [],
+    sets: (ex.exercise_sets ?? []).map(s => ({
+      ...s,
+      // effective weight respects per-set override
+      effective_weight_kg: s.weight_kg ?? ex.weight_kg,
+    })),
   })).filter(e => e.date)
 }

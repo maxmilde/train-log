@@ -141,11 +141,15 @@ export default function ExerciseRow({
       {/* Sets list */}
       {exercise.sets.length > 0 && (
         <div className="space-y-1.5 pt-1">
-          <div className="flex gap-2 px-5 mb-1">
+          <div className="flex gap-1.5 mb-1 items-center">
+            <span className="w-5" />
             <span className="flex-1 text-center text-[10px] text-gray-600 uppercase tracking-wider">
               {exercise.weightType === 'single' ? 'Reps/side' : 'Reps'}
             </span>
-            <span className="w-14 text-center text-[10px] text-gray-600 uppercase tracking-wider">Time</span>
+            {!isBodyweight && (
+              <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Weight</span>
+            )}
+            <span className="w-12 text-center text-[10px] text-gray-600 uppercase tracking-wider">Time</span>
             <span className="w-9" />
           </div>
           {exercise.sets.map((set, idx) => (
@@ -154,6 +158,8 @@ export default function ExerciseRow({
               set={set}
               setNumber={idx + 1}
               isSingleKB={exercise.weightType === 'single'}
+              weightType={exercise.weightType}
+              exerciseWeightKg={exercise.weightKg}
               onUpdate={patch => onUpdateSet(set.id, patch)}
               onDelete={() => onDeleteSet(set.id)}
             />

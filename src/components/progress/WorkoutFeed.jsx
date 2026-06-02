@@ -138,13 +138,18 @@ export default function WorkoutFeed() {
                   <p className="text-xs text-gray-400 italic">{w.notes}</p>
                 )}
                 {exercises.map((ex, i) => {
-                  const sets = ex.exercise_sets ?? []
+                  const sets = (ex.exercise_sets ?? [])
+                    .slice()
+                    .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))
                   const totalReps = sets.reduce((a, s) => a + (s.reps ?? 0), 0)
-                  const weightStr = ex.weight_type === 'bodyweight' || !ex.weight_kg
+                  const isBW = ex.weight_type === 'bodyweight' || !ex.weight_kg
+                  const headerWeight = isBW
                     ? 'BW'
                     : ex.weight_type === 'double'
                       ? `2\u00d7${ex.weight_kg}kg`
                       : `${ex.weight_kg}kg`
+                  let prevWeight = ex.weight_kg
+                  const fmtW = (w) => ex.weight_type === 'double' ? `2\u00d7${w}` : `${w}`
 
                   return (
                     <div key={i}>
@@ -152,14 +157,22 @@ export default function WorkoutFeed() {
                         <p className="text-sm text-gray-200 font-medium">
                           {ex.exercise_name || 'Unnamed'}
                         </p>
-                        <p className="text-xs text-gray-500">{weightStr}</p>
+                        <p className="text-xs text-gray-500">{headerWeight}</p>
                       </div>
                       <div className="flex gap-1.5 mt-1 flex-wrap">
-                        {sets.map((s, si) => (
-                          <span key={si} className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
-                            {s.reps ?? '—'}
-                          </span>
-                        ))}
+                        {sets.map((s, si) => {
+                          const effective = s.weight_kg ?? ex.weight_kg
+                          const showWeight = !isBW && effective !== prevWeight
+                          prevWeight = effective
+                          return (
+                            <span key={si} className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
+                              {showWeight && (
+                                <span className="text-blue-400 mr-0.5">@{fmtW(effective)}</span>
+                              )}
+                              {s.reps ?? '—'}
+                            </span>
+                          )
+                        })}
                         <span className="text-[11px] text-gray-500 ml-1">
                           = {totalReps} reps
                         </span>

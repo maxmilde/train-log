@@ -1,10 +1,11 @@
+import { useEffect, useState } from 'react'
 import { useTimer } from '../context/TimerContext'
 import { formatTime } from '../lib/utils'
 
 export default function TimerPage() {
   const {
-    config, phase, remaining, currentRound, running,
-    start, pauseResume, reset, updateConfig, PHASE,
+    config, phase, remaining, currentRound, running, pulse,
+    start, pauseResume, reset, updateConfig, PHASE, MODE,
   } = useTimer()
 
   const isIdle = phase === PHASE.IDLE
@@ -12,7 +13,17 @@ export default function TimerPage() {
   const isDone = phase === PHASE.DONE
   const isWork = phase === PHASE.WORK
   const isRest = phase === PHASE.REST
-  const showConfig = !isDone  // configurable in idle, pre, work, rest
+  const showConfig = !isDone
+  const isEmom = config.mode === MODE.EMOM
+
+  // Round-transition flash for EMOM
+  const [flash, setFlash] = useState(false)
+  useEffect(() => {
+    if (pulse === 0) return
+    setFlash(true)
+    const t = setTimeout(() => setFlash(false), 300)
+    return () => clearTimeout(t)
+  }, [pulse])
 
   const total = isWork ? config.workSecs : isRest ? config.restSecs : isPre ? 5 : 1
   const progress = isIdle || isDone ? 0 : 1 - (remaining / total)
@@ -45,6 +56,26 @@ export default function TimerPage() {
 
         {showConfig && (
           <div className="w-full space-y-3 pt-2">
+            {/* Mode toggle */}
+            <div className="flex rounded-2xl overflow-hidden border border-gray-700 bg-gray-800">
+              <button
+                type="button"
+                onClick={() => updateConfig('mode', MODE.INTERVALS)}
+                className={`flex-1 py-3 text-sm font-medium transition-colors
+                  ${!isEmom ? 'bg-green-600 text-white' : 'text-gray-400 active:text-gray-200'}`}
+              >
+                Intervals
+              </button>
+              <button
+                type="button"
+                onClick={() => updateConfig('mode', MODE.EMOM)}
+                className={`flex-1 py-3 text-sm font-medium transition-colors
+                  ${isEmom ? 'bg-green-600 text-white' : 'text-gray-400 active:text-gray-200'}`}
+              >
+                EMOM
+              </button>
+            </div>
+
             <ConfigRow
               label="Work"
               unit="sec"
@@ -52,13 +83,15 @@ export default function TimerPage() {
               highlighted={isWork}
               onChange={v => updateConfig('workSecs', v)}
             />
-            <ConfigRow
-              label="Rest"
-              unit="sec"
-              value={config.restSecs}
-              highlighted={isRest}
-              onChange={v => updateConfig('restSecs', v)}
-            />
+            {!isEmom && (
+              <ConfigRow
+                label="Rest"
+                unit="sec"
+                value={config.restSecs}
+                highlighted={isRest}
+                onChange={v => updateConfig('restSecs', v)}
+              />
+            )}
             <ConfigRow
               label="Rounds"
               unit=""
@@ -79,6 +112,17 @@ export default function TimerPage() {
                 style={{ transition: running ? 'stroke-dashoffset 0.9s linear' : 'none' }}
               />
             </svg>
+
+            {/* EMOM round-transition flash overlay */}
+            {flash && (
+              <div
+                className="absolute inset-0 rounded-full pointer-events-none"
+                style={{
+                  background: 'radial-gradient(closest-side, rgba(34,197,94,0.45), transparent 70%)',
+                  animation: 'pulse 0.3s ease-out',
+                }}
+              />
+            )}
 
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <p className="text-sm font-semibold uppercase tracking-widest" style={{ color: phaseColor }}>

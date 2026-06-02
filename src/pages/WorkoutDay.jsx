@@ -42,6 +42,8 @@ function normExercise(ex) {
         setNumber:       s.set_number,
         reps:            s.reps ?? null,
         durationSeconds: s.duration_seconds ?? null,
+        // Per-set weight; null = inherit exercise default
+        weightKg:        s.weight_kg ?? null,
       })),
   }
 }
@@ -265,10 +267,17 @@ export default function WorkoutDayPage() {
       const ex = state.exercises.find(e => e.id === exerciseId)
       if (!ex) return
       const setNumber = ex.sets.length + 1
+      // New set's weight defaults to the LAST set's effective weight,
+      // falling back to the exercise's default if no sets exist yet.
+      const lastSet = ex.sets[ex.sets.length - 1]
+      const defaultWeight = lastSet
+        ? (lastSet.weightKg ?? ex.weightKg)
+        : ex.weightKg
       const newSet = await upsertSet(user.id, exerciseId, {
         set_number: setNumber,
         reps: null,
         duration_seconds: null,
+        weight_kg: defaultWeight,
       })
       setState(prev => ({
         ...prev,
@@ -279,6 +288,7 @@ export default function WorkoutDayPage() {
                 setNumber: newSet.set_number,
                 reps: null,
                 durationSeconds: null,
+                weightKg: newSet.weight_kg ?? defaultWeight,
               }] }
             : e
         ),
@@ -308,6 +318,7 @@ export default function WorkoutDayPage() {
         set_number:       merged.setNumber,
         reps:             merged.reps,
         duration_seconds: merged.durationSeconds,
+        weight_kg:        merged.weightKg ?? null,
       })
     } catch (e) { console.error(e) }
   }, [user, state])

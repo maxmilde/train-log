@@ -44,9 +44,13 @@ CREATE TABLE IF NOT EXISTS exercise_sets (
   set_number integer NOT NULL DEFAULT 1,
   reps integer,
   duration_seconds integer,
+  weight_kg integer,            -- optional per-set weight override; falls back to workout_exercises.weight_kg
   created_at timestamptz DEFAULT now(),
   CONSTRAINT fk_workout_exercise FOREIGN KEY (workout_exercise_id) REFERENCES workout_exercises(id) ON DELETE CASCADE
 );
+
+-- For existing databases, add the column if it doesn't already exist.
+ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_kg integer;
 
 -- INDEXES (for query performance)
 

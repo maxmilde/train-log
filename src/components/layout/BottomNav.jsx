@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { CalendarDays, Dumbbell, Timer, BarChart2 } from 'lucide-react'
+import { CalendarDays, Dumbbell, Timer, BookOpen } from 'lucide-react'
 
 const TABS = [
   { to: '/',         label: 'Dashboard', Icon: CalendarDays, end: true },
   { to: '/workout',  label: 'Log',       Icon: Dumbbell,    end: false },
   { to: '/timer',    label: 'Timer',     Icon: Timer,       end: false },
-  { to: '/progress', label: 'Progress',  Icon: BarChart2,   end: false },
+  { to: '/library',  label: 'Library',   Icon: BookOpen,    end: false },
 ]
 
 export default function BottomNav() {

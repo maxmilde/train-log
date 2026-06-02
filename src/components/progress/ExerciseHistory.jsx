@@ -17,28 +17,36 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
     return sets.reduce((a, s) => a + (s.reps ?? 0), 0)
   }
 
-  // Find personal bests across all history
-  let maxTotalReps = 0
-  let maxSingleSetReps = 0
-  let bestVolumeEntry = null
-  let bestSetEntry = null
-
+  // Personal Bests — computed per (weight_type, effective_weight) bucket so 1×24 and 2×24 don't merge.
+  // Bucket key examples: "single|24", "double|24", "bodyweight|null"
+  const pbBuckets = new Map()
   if (history.length > 0) {
     history.forEach(entry => {
-      const sessionTotal = entry.sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
-      const sessionMax = entry.sets.length > 0
-        ? Math.max(...entry.sets.map(s => s.reps ?? 0))
-        : 0
-      if (sessionTotal > maxTotalReps) {
-        maxTotalReps = sessionTotal
-        bestVolumeEntry = entry
-      }
-      if (sessionMax > maxSingleSetReps) {
-        maxSingleSetReps = sessionMax
-        bestSetEntry = entry
+      // Group sets within this entry by their effective weight
+      const setsByWeight = new Map()
+      entry.sets.forEach(s => {
+        const w = entry.weight_type === 'bodyweight' ? null : (s.effective_weight_kg ?? entry.weight_kg)
+        const key = `${entry.weight_type}|${w}`
+        if (!setsByWeight.has(key)) setsByWeight.set(key, { sets: [], weight_kg: w, weight_type: entry.weight_type })
+        setsByWeight.get(key).sets.push(s)
+      })
+      for (const [key, group] of setsByWeight) {
+        const sessionTotal = group.sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
+        const sessionMax = Math.max(0, ...group.sets.map(s => s.reps ?? 0))
+        const existing = pbBuckets.get(key) ?? {
+          weight_kg: group.weight_kg,
+          weight_type: group.weight_type,
+          maxTotal: 0, totalDate: null,
+          maxSet: 0, setDate: null,
+        }
+        if (sessionTotal > existing.maxTotal) { existing.maxTotal = sessionTotal; existing.totalDate = entry.date }
+        if (sessionMax   > existing.maxSet)   { existing.maxSet   = sessionMax;   existing.setDate   = entry.date }
+        pbBuckets.set(key, existing)
       }
     })
   }
+  // Sort PB buckets so heavier weights appear first
+  const pbList = [...pbBuckets.values()].sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))
 
   return (
     <div className="space-y-4">
@@ -61,25 +69,27 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
         <p className="text-gray-600 text-sm text-center py-12">No history for "{selected}"</p>
       )}
 
-      {/* Personal best banner */}
-      {bestVolumeEntry && (
-        <div className="bg-blue-950 border border-blue-800 rounded-xl px-4 py-3 space-y-1.5">
-          <p className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold">Personal Bests</p>
-          <div className="flex justify-between items-baseline">
-            <p className="text-blue-200 text-sm">
-              Max volume: <span className="font-bold">{maxTotalReps} reps</span>
-            </p>
-            <p className="text-blue-700 text-[10px]">{bestVolumeEntry.date}</p>
-          </div>
-          <div className="flex justify-between items-baseline">
-            <p className="text-blue-200 text-sm">
-              Best set: <span className="font-bold">{repsLabel(maxSingleSetReps, bestSetEntry?.weight_type)}</span>
-            </p>
-            <p className="text-blue-700 text-[10px]">{bestSetEntry?.date}</p>
-          </div>
-          {bestVolumeEntry.weight_kg && bestVolumeEntry.weight_type !== 'bodyweight' && (
-            <p className="text-blue-600 text-xs">{weightLabel(bestVolumeEntry)}</p>
-          )}
+      {/* Personal best banner — one section per weight bucket */}
+      {pbList.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold px-1">Personal Bests</p>
+          {pbList.map((pb, idx) => (
+            <div key={idx} className="bg-blue-950 border border-blue-800 rounded-xl px-4 py-3 space-y-1.5">
+              <p className="text-blue-300 text-xs font-semibold">{weightLabel(pb)}</p>
+              <div className="flex justify-between items-baseline">
+                <p className="text-blue-200 text-sm">
+                  Max volume: <span className="font-bold">{pb.maxTotal} reps</span>
+                </p>
+                <p className="text-blue-700 text-[10px]">{pb.totalDate}</p>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <p className="text-blue-200 text-sm">
+                  Best set: <span className="font-bold">{repsLabel(pb.maxSet, pb.weight_type)}</span>
+                </p>
+                <p className="text-blue-700 text-[10px]">{pb.setDate}</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -99,16 +109,27 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
                 <p className="text-xs text-gray-600">{entry.date}</p>
               </div>
 
-              {/* Set breakdown */}
-              {entry.sets.length > 0 && (
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {entry.sets.map((s, si) => (
-                    <span key={si} className="text-xs bg-gray-700 text-gray-300 rounded-md px-2 py-1">
-                      {repsLabel(s.reps, entry.weight_type)} reps
-                    </span>
-                  ))}
-                </div>
-              )}
+              {/* Set breakdown — show weight when it differs from the previous set */}
+              {entry.sets.length > 0 && (() => {
+                let prev = entry.weight_kg
+                const isBW = entry.weight_type === 'bodyweight'
+                const fmtW = (w) => entry.weight_type === 'double' ? `2×${w}` : `${w}`
+                return (
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {entry.sets.map((s, si) => {
+                      const eff = s.effective_weight_kg ?? entry.weight_kg
+                      const showW = !isBW && eff !== prev
+                      prev = eff
+                      return (
+                        <span key={si} className="text-xs bg-gray-700 text-gray-300 rounded-md px-2 py-1">
+                          {showW && <span className="text-blue-400 mr-1">@{fmtW(eff)}</span>}
+                          {repsLabel(s.reps, entry.weight_type)} reps
+                        </span>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
           ))}
         </div>

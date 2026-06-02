@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { getDaysForYear, getSettings, upsertSettings } from '../lib/db'
-import { calcGoalStats, toDateStr } from '../lib/utils'
+import { calcGoalStats } from '../lib/utils'
 import YearHeatmap from '../components/calendar/YearHeatmap'
 import GoalTracker from '../components/dashboard/GoalTracker'
 import DurationChart from '../components/dashboard/DurationChart'
+import MonthlyChart from '../components/progress/Charts'
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -41,6 +42,14 @@ export default function DashboardPage() {
     }
   }
 
+  // Aggregate totals for the Duration section
+  const workoutsWithDuration = yearDays.filter(d => d.day_type === 'workout' && d.duration_minutes)
+  const totalMins = workoutsWithDuration.reduce((a, d) => a + d.duration_minutes, 0)
+  const avgMin = workoutsWithDuration.length > 0
+    ? Math.round(totalMins / workoutsWithDuration.length)
+    : 0
+  const totalHM = `${Math.floor(totalMins / 60)}:${String(totalMins % 60).padStart(2, '0')}`
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -76,10 +85,31 @@ export default function DashboardPage() {
         <YearHeatmap year={year} dayMap={dayMap} />
       </div>
 
-      {/* Duration chart */}
-      <div className="px-4 mt-4 pb-6">
+      {/* Duration section (moved from Progress > Duration) */}
+      <div className="px-4 mt-5 space-y-3">
+        <p className="text-xs text-gray-500 uppercase tracking-wider px-1">Duration</p>
         <DurationChart days={yearDays} />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard label="Total time" value={totalHM} unit="hours" />
+          <StatCard label="Avg duration" value={avgMin} unit="min / session" />
+        </div>
       </div>
+
+      {/* Monthly section (moved from Progress > Monthly) */}
+      <div className="px-4 mt-5 pb-6 space-y-3">
+        <p className="text-xs text-gray-500 uppercase tracking-wider px-1">Monthly</p>
+        <MonthlyChart days={yearDays} year={year} />
+      </div>
+    </div>
+  )
+}
+
+function StatCard({ label, value, unit }) {
+  return (
+    <div className="bg-gray-800 rounded-xl p-4">
+      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">{label}</p>
+      <p className="text-2xl font-bold text-gray-100">{value}</p>
+      <p className="text-xs text-gray-600">{unit}</p>
     </div>
   )
 }
