@@ -140,16 +140,23 @@ export default function WorkoutFeed() {
                 {exercises.map((ex, i) => {
                   const sets = (ex.exercise_sets ?? [])
                     .slice()
+                    .filter(s => s.reps != null)  // skip empty sets
                     .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))
                   const totalReps = sets.reduce((a, s) => a + (s.reps ?? 0), 0)
-                  const isBW = ex.weight_type === 'bodyweight' || !ex.weight_kg
-                  const headerWeight = isBW
+                  const exIsBW = ex.weight_type === 'bodyweight'
+                  const headerWeight = exIsBW
                     ? 'BW'
                     : ex.weight_type === 'double'
                       ? `2\u00d7${ex.weight_kg}kg`
                       : `${ex.weight_kg}kg`
-                  let prevWeight = ex.weight_kg
-                  const fmtW = (w) => ex.weight_type === 'double' ? `2\u00d7${w}` : `${w}`
+                  // Effective per-set label: respects per-set weight_type + weight_kg overrides
+                  const effLabel = (s) => {
+                    const t = s.weight_type ?? ex.weight_type
+                    if (t === 'bodyweight' || (exIsBW && s.weight_kg == null)) return 'BW'
+                    const w = s.weight_kg ?? ex.weight_kg
+                    return t === 'double' ? `2\u00d7${w}` : `${w}`
+                  }
+                  let prevLabel = null
 
                   return (
                     <div key={i}>
@@ -161,13 +168,13 @@ export default function WorkoutFeed() {
                       </div>
                       <div className="flex gap-1.5 mt-1 flex-wrap">
                         {sets.map((s, si) => {
-                          const effective = s.weight_kg ?? ex.weight_kg
-                          const showWeight = !isBW && effective !== prevWeight
-                          prevWeight = effective
+                          const lbl = effLabel(s)
+                          const showLabel = lbl !== prevLabel
+                          prevLabel = lbl
                           return (
                             <span key={si} className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
-                              {showWeight && (
-                                <span className="text-blue-400 mr-0.5">@{fmtW(effective)}</span>
+                              {showLabel && (
+                                <span className="text-blue-400 mr-0.5">@{lbl}</span>
                               )}
                               {s.reps ?? '—'}
                             </span>

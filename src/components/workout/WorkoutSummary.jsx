@@ -3,23 +3,29 @@ import { Trophy, Clock } from 'lucide-react'
 export default function WorkoutSummary({ exercises, durationMinutes }) {
   if (!exercises || exercises.length === 0) return null
 
-  // Group by (name, weight_type, effective_weight) so mixed-weight sessions
-  // appear as separate rows: "2x24kg Long Cycle: 10" + "2x28kg Long Cycle: 6"
+  // Group by (name, set's effective type, set's effective weight). Mixed sessions split into rows:
+  // "1×24kg Long Cycle: 10" + "2×24kg Long Cycle: 5" + "2×28kg Long Cycle: 4".
+  // Empty sets (reps null/0) are ignored.
   const groups = []
   const groupMap = new Map()
 
   for (const ex of exercises) {
     if (!ex.exerciseName) continue
-    const isBW = ex.weightType === 'bodyweight'
+    const exDefaultIsBW = ex.weightType === 'bodyweight'
     for (const set of ex.sets) {
-      const effectiveKg = isBW ? null : (set.weightKg ?? ex.weightKg)
-      const key = `${ex.exerciseName}|${ex.weightType}|${effectiveKg ?? 'bw'}`
+      if (set.reps == null || set.reps === 0) continue
+      // Effective values fall back to exercise defaults
+      const effType = set.weightType ?? ex.weightType ?? 'single'
+      const isBWSet = effType === 'bodyweight' || (exDefaultIsBW && set.weightKg == null)
+      const effKg = isBWSet ? null : (set.weightKg ?? ex.weightKg)
+      const normType = isBWSet ? 'bodyweight' : effType
+      const key = `${ex.exerciseName}|${normType}|${effKg ?? 'bw'}`
 
       if (!groupMap.has(key)) {
         const group = {
           exerciseName: ex.exerciseName,
-          weightType: ex.weightType,
-          weightKg: effectiveKg,
+          weightType: normType,
+          weightKg: effKg,
           totalReps: 0,
         }
         groupMap.set(key, group)

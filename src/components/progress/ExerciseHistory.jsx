@@ -17,20 +17,25 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
     return sets.reduce((a, s) => a + (s.reps ?? 0), 0)
   }
 
-  // Personal Bests — computed per (weight_type, effective_weight) bucket so 1×24 and 2×24 don't merge.
-  // Bucket key examples: "single|24", "double|24", "bodyweight|null"
+  // PB buckets keyed by (per-set effective type, per-set effective weight).
+  // Empty sets are pre-filtered upstream in getExerciseHistory.
   const pbBuckets = new Map()
   if (history.length > 0) {
     history.forEach(entry => {
-      // Group sets within this entry by their effective weight
-      const setsByWeight = new Map()
+      const exDefaultIsBW = entry.weight_type === 'bodyweight'
+      const setsByBucket = new Map()
       entry.sets.forEach(s => {
-        const w = entry.weight_type === 'bodyweight' ? null : (s.effective_weight_kg ?? entry.weight_kg)
-        const key = `${entry.weight_type}|${w}`
-        if (!setsByWeight.has(key)) setsByWeight.set(key, { sets: [], weight_kg: w, weight_type: entry.weight_type })
-        setsByWeight.get(key).sets.push(s)
+        const t = s.effective_weight_type ?? entry.weight_type
+        const isBWSet = t === 'bodyweight' || (exDefaultIsBW && s.weight_kg == null)
+        const normType = isBWSet ? 'bodyweight' : t
+        const w = isBWSet ? null : (s.effective_weight_kg ?? entry.weight_kg)
+        const key = `${normType}|${w ?? 'bw'}`
+        if (!setsByBucket.has(key)) {
+          setsByBucket.set(key, { sets: [], weight_kg: w, weight_type: normType })
+        }
+        setsByBucket.get(key).sets.push(s)
       })
-      for (const [key, group] of setsByWeight) {
+      for (const [key, group] of setsByBucket) {
         const sessionTotal = group.sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
         const sessionMax = Math.max(0, ...group.sets.map(s => s.reps ?? 0))
         const existing = pbBuckets.get(key) ?? {
@@ -45,7 +50,6 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
       }
     })
   }
-  // Sort PB buckets so heavier weights appear first
   const pbList = [...pbBuckets.values()].sort((a, b) => (b.weight_kg ?? 0) - (a.weight_kg ?? 0))
 
   return (
@@ -109,21 +113,30 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
                 <p className="text-xs text-gray-600">{entry.date}</p>
               </div>
 
-              {/* Set breakdown — show weight when it differs from the previous set */}
+              {/* Set breakdown — show label when type/weight differs from previous set */}
               {entry.sets.length > 0 && (() => {
-                let prev = entry.weight_kg
-                const isBW = entry.weight_type === 'bodyweight'
-                const fmtW = (w) => entry.weight_type === 'double' ? `2×${w}` : `${w}`
+                const exDefaultIsBW = entry.weight_type === 'bodyweight'
+                const effLabel = (s) => {
+                  const t = s.effective_weight_type ?? entry.weight_type
+                  if (t === 'bodyweight' || (exDefaultIsBW && s.weight_kg == null)) return 'BW'
+                  const w = s.effective_weight_kg ?? entry.weight_kg
+                  return t === 'double' ? `2×${w}` : `${w}`
+                }
+                const effReps = (s) => {
+                  const t = s.effective_weight_type ?? entry.weight_type
+                  return repsLabel(s.reps, t)
+                }
+                let prev = null
                 return (
                   <div className="flex gap-2 mt-2 flex-wrap">
                     {entry.sets.map((s, si) => {
-                      const eff = s.effective_weight_kg ?? entry.weight_kg
-                      const showW = !isBW && eff !== prev
-                      prev = eff
+                      const lbl = effLabel(s)
+                      const show = lbl !== prev
+                      prev = lbl
                       return (
                         <span key={si} className="text-xs bg-gray-700 text-gray-300 rounded-md px-2 py-1">
-                          {showW && <span className="text-blue-400 mr-1">@{fmtW(eff)}</span>}
-                          {repsLabel(s.reps, entry.weight_type)} reps
+                          {show && <span className="text-blue-400 mr-1">@{lbl}</span>}
+                          {effReps(s)} reps
                         </span>
                       )
                     })}

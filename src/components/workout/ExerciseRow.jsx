@@ -60,10 +60,10 @@ export default function ExerciseRow({
         </div>
       )}
 
-      {/* Weight + goal sets row */}
+      {/* Default weight + BW toggle row (1×/2× lives per-set now) */}
       <div className="flex gap-2 items-center">
         {isBodyweight ? (
-          /* Bodyweight mode — just a label + button to switch back */
+          /* Bodyweight mode — label + button to switch back to weighted */
           <button
             type="button"
             onClick={() => onUpdate({ weightType: 'single', weightKg: 24 })}
@@ -75,24 +75,7 @@ export default function ExerciseRow({
           </button>
         ) : (
           <>
-            {/* Single / Double toggle */}
-            <div className="flex rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
-              {['single', 'double'].map(wt => (
-                <button
-                  key={wt}
-                  type="button"
-                  onClick={() => onUpdate({ weightType: wt })}
-                  className={`px-3 py-2 text-xs font-medium capitalize min-h-[40px] transition-colors
-                    ${exercise.weightType === wt
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-900 text-gray-400 hover:text-gray-300'}`}
-                >
-                  {wt === 'single' ? '1×' : '2×'}
-                </button>
-              ))}
-            </div>
-
-            {/* Weight dropdown */}
+            {/* Default weight dropdown (per-set type lives in SetRow) */}
             <div className="relative flex-1">
               <select
                 value={exercise.weightKg ?? 24}
@@ -144,10 +127,16 @@ export default function ExerciseRow({
           <div className="flex gap-1.5 mb-1 items-center">
             <span className="w-5" />
             <span className="flex-1 text-center text-[10px] text-gray-600 uppercase tracking-wider">
-              {exercise.weightType === 'single' ? 'Reps/side' : 'Reps'}
+              Reps
             </span>
             {!isBodyweight && (
-              <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Weight</span>
+              <>
+                <span className="w-[46px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Type</span>
+                <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Weight</span>
+              </>
+            )}
+            {isBodyweight && (
+              <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Load</span>
             )}
             <span className="w-12 text-center text-[10px] text-gray-600 uppercase tracking-wider">Time</span>
             <span className="w-9" />
@@ -157,8 +146,7 @@ export default function ExerciseRow({
               key={set.id || idx}
               set={set}
               setNumber={idx + 1}
-              isSingleKB={exercise.weightType === 'single'}
-              weightType={exercise.weightType}
+              exerciseWeightType={exercise.weightType}
               exerciseWeightKg={exercise.weightKg}
               onUpdate={patch => onUpdateSet(set.id, patch)}
               onDelete={() => onDeleteSet(set.id)}

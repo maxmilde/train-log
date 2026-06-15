@@ -10,6 +10,7 @@ import {
   deleteExercise,
   upsertSet,
   deleteSet,
+  deleteEmptySetsForDay,
   getExerciseNames,
 } from '../lib/db'
 import { toDateStr } from '../lib/utils'
@@ -42,8 +43,9 @@ function normExercise(ex) {
         setNumber:       s.set_number,
         reps:            s.reps ?? null,
         durationSeconds: s.duration_seconds ?? null,
-        // Per-set weight; null = inherit exercise default
+        // Per-set overrides; null = inherit exercise default
         weightKg:        s.weight_kg ?? null,
+        weightType:      s.weight_type ?? null,
       })),
   }
 }
@@ -267,17 +269,25 @@ export default function WorkoutDayPage() {
       const ex = state.exercises.find(e => e.id === exerciseId)
       if (!ex) return
       const setNumber = ex.sets.length + 1
-      // New set's weight defaults to the LAST set's effective weight,
-      // falling back to the exercise's default if no sets exist yet.
+      // New set inherits BOTH weight and type from the last set;
+      // falls back to the exercise's defaults if no sets exist yet.
+      // For first set on a non-BW exercise, default type is 'single'.
       const lastSet = ex.sets[ex.sets.length - 1]
       const defaultWeight = lastSet
         ? (lastSet.weightKg ?? ex.weightKg)
         : ex.weightKg
+      const isBW = ex.weightType === 'bodyweight'
+      const defaultType = isBW
+        ? 'bodyweight'
+        : lastSet
+          ? (lastSet.weightType ?? ex.weightType ?? 'single')
+          : 'single'
       const newSet = await upsertSet(user.id, exerciseId, {
         set_number: setNumber,
         reps: null,
         duration_seconds: null,
         weight_kg: defaultWeight,
+        weight_type: defaultType,
       })
       setState(prev => ({
         ...prev,
@@ -289,6 +299,7 @@ export default function WorkoutDayPage() {
                 reps: null,
                 durationSeconds: null,
                 weightKg: newSet.weight_kg ?? defaultWeight,
+                weightType: newSet.weight_type ?? defaultType,
               }] }
             : e
         ),
@@ -319,6 +330,7 @@ export default function WorkoutDayPage() {
         reps:             merged.reps,
         duration_seconds: merged.durationSeconds,
         weight_kg:        merged.weightKg ?? null,
+        weight_type:      merged.weightType ?? null,
       })
     } catch (e) { console.error(e) }
   }, [user, state])
@@ -349,7 +361,20 @@ export default function WorkoutDayPage() {
         notes: state.notes || null,
         submitted: true,
       })
-      setState(prev => ({ ...prev, dayId: day.id, submitted: true }))
+      // Drop trailing empty sets (reps == null) so the feed/history stay clean
+      try {
+        await deleteEmptySetsForDay(user.id, day.id)
+      } catch (e) { console.error('Failed to clean empty sets:', e) }
+      // Reflect the cleanup in local state so the UI matches the DB
+      setState(prev => ({
+        ...prev,
+        dayId: day.id,
+        submitted: true,
+        exercises: prev.exercises.map(ex => ({
+          ...ex,
+          sets: ex.sets.filter(s => s.reps != null),
+        })),
+      }))
     } catch (e) { console.error(e) }
     finally { setSaving(false) }
   }, [user, date, state])

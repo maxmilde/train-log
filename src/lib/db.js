@@ -113,7 +113,7 @@ export async function deleteExercise(exerciseId) {
 // ── EXERCISE SETS ───────────────────────────────────────────────────────────────
 
 export async function upsertSet(userId, workoutExerciseId, set) {
-  const { id, set_number, reps, duration_seconds, weight_kg } = set
+  const { id, set_number, reps, duration_seconds, weight_kg, weight_type } = set
   const payload = {
     user_id: userId,
     workout_exercise_id: workoutExerciseId,
@@ -121,8 +121,9 @@ export async function upsertSet(userId, workoutExerciseId, set) {
     reps,
     duration_seconds,
   }
-  // weight_kg is optional per-set override; only include if explicitly provided
-  if (weight_kg !== undefined) payload.weight_kg = weight_kg
+  // Per-set overrides; only include if explicitly provided
+  if (weight_kg   !== undefined) payload.weight_kg = weight_kg
+  if (weight_type !== undefined) payload.weight_type = weight_type
   if (id) payload.id = id
 
   const { data, error } = await supabase
@@ -132,6 +133,26 @@ export async function upsertSet(userId, workoutExerciseId, set) {
     .single()
   if (error) throw error
   return data
+}
+
+// Remove empty (reps = null) sets from this workout day to keep displays clean.
+// Used on Submit so trailing blank set rows don't pollute the feed/history.
+export async function deleteEmptySetsForDay(userId, dayId) {
+  // Fetch exercise IDs for the day
+  const { data: exs, error: exErr } = await supabase
+    .from('workout_exercises')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('workout_day_id', dayId)
+  if (exErr) throw exErr
+  const ids = (exs ?? []).map(e => e.id)
+  if (ids.length === 0) return
+  const { error } = await supabase
+    .from('exercise_sets')
+    .delete()
+    .in('workout_exercise_id', ids)
+    .is('reps', null)
+  if (error) throw error
 }
 
 export async function deleteSet(setId) {
@@ -384,37 +405,34 @@ export async function deleteExerciseByName(userId, name) {
   if (error) throw error
 }
 
-// PBs now respect per-set weight overrides:
-//   - Each set's "effective weight" is set.weight_kg if present, otherwise the exercise's weight_kg.
-//   - For target (name, weightType, weightKg), include only sets whose effective weight matches weightKg.
-//   - Session totals are summed over the matching sets within that exercise instance.
+// PBs respect per-set type AND weight overrides:
+//   - Each set's "effective type" = set.weight_type if present, else exercise's weight_type.
+//   - Each set's "effective weight" = set.weight_kg if present, else exercise's weight_kg.
+//   - For target (name, weightType, weightKg), include only sets whose effective values match.
+//   - Skip empty sets (reps == null).
 export async function getPersonalBest(userId, exerciseName, weightType, weightKg) {
   if (!exerciseName) return null
-  let query = supabase
+  const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, exercise_sets(reps, weight_kg)')
+    .select('id, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
-
-  if (weightType && weightType !== 'bodyweight') {
-    query = query.eq('weight_type', weightType)
-  } else if (weightType === 'bodyweight') {
-    query = query.eq('weight_type', 'bodyweight')
-  }
-
-  const { data, error } = await query
   if (error) throw error
   if (!data || data.length === 0) return null
 
-  let maxTotalReps = 0      // best total reps in a single session AT THIS WEIGHT
-  let maxSingleSetReps = 0  // best reps in any single set ever AT THIS WEIGHT
+  let maxTotalReps = 0
+  let maxSingleSetReps = 0
 
   for (const ex of data) {
-    const exerciseDefaultWeight = ex.weight_kg
+    const exDefaultType   = ex.weight_type
+    const exDefaultWeight = ex.weight_kg
     const matchingSets = (ex.exercise_sets ?? []).filter(s => {
-      const effective = s.weight_kg ?? exerciseDefaultWeight
+      if (s.reps == null) return false  // skip empty sets
+      const eType = s.weight_type ?? exDefaultType
+      if (eType !== weightType) return false
       if (weightType === 'bodyweight') return true
-      return effective === weightKg
+      const eWeight = s.weight_kg ?? exDefaultWeight
+      return eWeight === weightKg
     })
     if (matchingSets.length === 0) continue
     const sessionTotal = matchingSets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
@@ -434,7 +452,7 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
 export async function getWorkoutFeed(userId, { limit = 20, offset = 0 } = {}) {
   const { data, error } = await supabase
     .from('workout_days')
-    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps, weight_kg, set_number))')
+    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type, set_number))')
     .eq('user_id', userId)
     .eq('submitted', true)
     .order('date', { ascending: false })
@@ -447,7 +465,7 @@ export async function getExerciseHistory(userId, exerciseName) {
   if (!exerciseName) return []
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, duration_seconds, weight_kg)')
+    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, duration_seconds, weight_kg, weight_type)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
     .order('created_at', { ascending: true })
@@ -456,10 +474,13 @@ export async function getExerciseHistory(userId, exerciseName) {
     date: ex.workout_days?.date,
     weight_kg: ex.weight_kg,
     weight_type: ex.weight_type,
-    sets: (ex.exercise_sets ?? []).map(s => ({
-      ...s,
-      // effective weight respects per-set override
-      effective_weight_kg: s.weight_kg ?? ex.weight_kg,
-    })),
+    sets: (ex.exercise_sets ?? [])
+      .filter(s => s.reps != null)  // hide empty sets from history
+      .map(s => ({
+        ...s,
+        // effective values respect per-set overrides
+        effective_weight_kg: s.weight_kg ?? ex.weight_kg,
+        effective_weight_type: s.weight_type ?? ex.weight_type,
+      })),
   })).filter(e => e.date)
 }
