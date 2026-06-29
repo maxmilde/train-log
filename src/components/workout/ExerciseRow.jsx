@@ -57,22 +57,6 @@ export default function ExerciseRow({
         </div>
       )}
 
-      {/* Goal reps (BW vs weighted is per-set now — set the load on each set row) */}
-      <div className="flex gap-2 items-center justify-end">
-        <div className="flex-shrink-0">
-          <input
-            type="number"
-            inputMode="numeric"
-            value={exercise.goalReps ?? ''}
-            onChange={e => onUpdate({ goalReps: e.target.value === '' ? null : Number(e.target.value) })}
-            placeholder="Goal"
-            className="w-16 rounded-lg bg-gray-900 border border-gray-700
-                       px-2 py-2 text-gray-400 text-center text-sm min-h-[40px]
-                       focus:outline-none focus:border-green-500"
-          />
-          <p className="text-[9px] text-gray-600 text-center mt-0.5">reps goal</p>
-        </div>
-      </div>
 
       {/* Sets list */}
       {exercise.sets.length > 0 && (
@@ -100,28 +84,15 @@ export default function ExerciseRow({
         </div>
       )}
 
-      {/* Add set + sets summary */}
-      <div className="flex items-center justify-between pt-1">
-        <button
-          type="button"
-          onClick={onAddSet}
-          className="text-sm text-green-400 hover:text-green-300 active:text-green-200
-                     py-2 transition-colors font-medium"
-        >
-          + Add set
-        </button>
-
-        {exercise.goalReps && exercise.goalReps > 0 && (() => {
-          // Total respects per-set rounds multiplier
-          const totalReps = exercise.sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
-          const hit = totalReps >= exercise.goalReps
-          return (
-            <span className={`text-xs font-medium ${hit ? 'text-green-400' : 'text-gray-500'}`}>
-              {totalReps}/{exercise.goalReps} reps{hit ? ' ✓' : ''}
-            </span>
-          )
-        })()}
-      </div>
+      {/* Add set */}
+      <button
+        type="button"
+        onClick={onAddSet}
+        className="text-sm text-green-400 hover:text-green-300 active:text-green-200
+                   py-2 transition-colors font-medium"
+      >
+        + Add set
+      </button>
     </div>
   )
 }

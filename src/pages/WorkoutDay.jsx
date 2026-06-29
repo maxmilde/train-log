@@ -34,7 +34,6 @@ function normExercise(ex) {
     exerciseName: ex.exercise_name ?? '',
     weightKg:     ex.weight_kg ?? 24,
     weightType:   ex.weight_type ?? 'single',
-    goalReps:     ex.goal_reps ?? null,
     displayOrder: ex.display_order ?? 0,
     sets: (ex.exercise_sets ?? [])
       .sort((a, b) => a.set_number - b.set_number)
@@ -171,7 +170,6 @@ export default function WorkoutDayPage() {
         exercise_name: '',
         weight_kg: 24,
         weight_type: 'single',
-        goal_reps: null,
         display_order: currentState.exercises.length,
       })
 
@@ -196,7 +194,7 @@ export default function WorkoutDayPage() {
       ),
     }))
 
-    const dbFields = ['exerciseName', 'weightKg', 'weightType', 'goalReps']
+    const dbFields = ['exerciseName', 'weightKg', 'weightType']
     if (!dbFields.some(f => f in patch)) return
 
     try {
@@ -208,7 +206,6 @@ export default function WorkoutDayPage() {
         exercise_name: merged.exerciseName,
         weight_kg:     merged.weightKg,
         weight_type:   merged.weightType,
-        goal_reps:     merged.goalReps,
         display_order: merged.displayOrder,
       })
       if ('exerciseName' in patch) {
@@ -239,7 +236,6 @@ export default function WorkoutDayPage() {
           exercise_name: exA.exerciseName,
           weight_kg: exA.weightKg,
           weight_type: exA.weightType,
-          goal_reps: exA.goalReps,
           display_order: toIndex,
         }),
         upsertExercise(user.id, state.dayId, {
@@ -247,7 +243,6 @@ export default function WorkoutDayPage() {
           exercise_name: exB.exerciseName,
           weight_kg: exB.weightKg,
           weight_type: exB.weightType,
-          goal_reps: exB.goalReps,
           display_order: fromIndex,
         }),
       ])
