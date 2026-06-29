@@ -353,7 +353,8 @@ export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
   return targetDay
 }
 
-// Catalog: list all unique exercises with usage stats
+// Catalog: list all unique exercises with usage stats.
+// Skips exercise instances that have zero non-empty sets so they don't inflate counts.
 export async function getExerciseCatalog(userId) {
   const { data, error } = await supabase
     .from('workout_exercises')
@@ -367,15 +368,15 @@ export async function getExerciseCatalog(userId) {
     if (!name) continue
     const day = ex.workout_days
     if (!day?.submitted) continue
+    const nonEmptySets = (ex.exercise_sets ?? []).filter(s => s.reps != null)
+    if (nonEmptySets.length === 0) continue  // orphan exercise — nothing logged
     if (!map.has(name)) {
       map.set(name, { name, sessions: 0, lastDate: null, totalReps: 0, configs: new Set() })
     }
     const entry = map.get(name)
     entry.sessions += 1
     if (!entry.lastDate || day.date > entry.lastDate) entry.lastDate = day.date
-    // Total reps respects per-set rounds (reps * rounds)
-    entry.totalReps += (ex.exercise_sets ?? [])
-      .reduce((a, s) => a + ((s.reps ?? 0) * (s.rounds ?? 1)), 0)
+    entry.totalReps += nonEmptySets.reduce((a, s) => a + ((s.reps ?? 0) * (s.rounds ?? 1)), 0)
     if (ex.weight_type === 'bodyweight') entry.configs.add('BW')
     else if (ex.weight_type === 'double') entry.configs.add(`2×${ex.weight_kg}kg`)
     else entry.configs.add(`${ex.weight_kg}kg`)
@@ -486,5 +487,8 @@ export async function getExerciseHistory(userId, exerciseName) {
         effective_weight_kg: s.weight_kg ?? ex.weight_kg,
         effective_weight_type: s.weight_type ?? ex.weight_type,
       })),
-  })).filter(e => e.date)
+  }))
+  // Drop entries with no date or zero non-empty sets — these are orphan
+  // exercise rows from sessions where nothing was actually logged.
+  .filter(e => e.date && e.sets.length > 0)
 }

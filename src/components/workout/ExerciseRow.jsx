@@ -18,7 +18,6 @@ export default function ExerciseRow({
   const { user } = useAuth()
   const [pb, setPb] = useState(null)
   const pbStr = formatPB(pb)
-  const isBodyweight = exercise.weightType === 'bodyweight'
 
   // Load personal best when exercise name or weight config changes
   useEffect(() => {
@@ -58,31 +57,8 @@ export default function ExerciseRow({
         </div>
       )}
 
-      {/* BW toggle + Goal reps row (per-set weight/type lives on each set) */}
-      <div className="flex gap-2 items-center">
-        {isBodyweight ? (
-          <button
-            type="button"
-            onClick={() => onUpdate({ weightType: 'single', weightKg: 24 })}
-            className="rounded-lg bg-gray-900 border border-gray-700
-                       px-3 py-2 text-xs text-gray-400 min-h-[40px]
-                       active:bg-gray-700 transition-colors flex-1 text-left"
-          >
-            Bodyweight <span className="text-gray-600 ml-1">· tap to switch</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onUpdate({ weightType: 'bodyweight', weightKg: null })}
-            className="rounded-lg bg-gray-900 border border-gray-700
-                       px-3 py-2 text-xs text-gray-400 min-h-[40px]
-                       active:bg-gray-700 transition-colors flex-1 text-left"
-          >
-            Weighted <span className="text-gray-600 ml-1">· tap for bodyweight</span>
-          </button>
-        )}
-
-        {/* Goal reps */}
+      {/* Goal reps (BW vs weighted is per-set now — set the load on each set row) */}
+      <div className="flex gap-2 items-center justify-end">
         <div className="flex-shrink-0">
           <input
             type="number"
@@ -106,15 +82,8 @@ export default function ExerciseRow({
             <span className="flex-1 text-center text-[10px] text-gray-600 uppercase tracking-wider">
               Reps
             </span>
-            {!isBodyweight && (
-              <>
-                <span className="w-[46px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Type</span>
-                <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Weight</span>
-              </>
-            )}
-            {isBodyweight && (
-              <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Load</span>
-            )}
+            <span className="w-[46px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Type</span>
+            <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Load</span>
             <span className="w-9" />
           </div>
           {exercise.sets.map((set, idx) => (
@@ -143,7 +112,8 @@ export default function ExerciseRow({
         </button>
 
         {exercise.goalReps && exercise.goalReps > 0 && (() => {
-          const totalReps = exercise.sets.reduce((a, s) => a + (s.reps ?? 0), 0)
+          // Total respects per-set rounds multiplier
+          const totalReps = exercise.sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
           const hit = totalReps >= exercise.goalReps
           return (
             <span className={`text-xs font-medium ${hit ? 'text-green-400' : 'text-gray-500'}`}>

@@ -89,7 +89,10 @@ export default function WorkoutFeed() {
   return (
     <div className="space-y-3">
       {workouts.map(w => {
-        const exercises = w.workout_exercises ?? []
+        // Hide orphan exercises (nothing logged) so they don't show as '0 reps' rows
+        const exercises = (w.workout_exercises ?? []).filter(ex =>
+          (ex.exercise_sets ?? []).some(s => s.reps != null)
+        )
         const isOpen = expanded[w.id]
         const dateObj = new Date(w.date + 'T00:00:00')
         const dateLabel = dateObj.toLocaleDateString('en-GB', {

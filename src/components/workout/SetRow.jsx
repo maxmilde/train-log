@@ -1,14 +1,13 @@
 import { useState, useRef } from 'react'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Minus, Plus } from 'lucide-react'
 
 const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
-const ROUNDS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 export default function SetRow({
   set,
   setNumber,
-  exerciseWeightType,   // 'single' | 'double' | 'bodyweight' (exercise default)
-  exerciseWeightKg,     // exercise default weight (used when set.weightKg is null)
+  exerciseWeightType,   // exercise default — used only as initial fallback
+  exerciseWeightKg,     // exercise default — used only as initial fallback
   onUpdate,
   onDelete,
 }) {
@@ -36,19 +35,18 @@ export default function SetRow({
     if (val !== set.reps) onUpdate({ reps: val })
   }
 
-  const isBW = exerciseWeightType === 'bodyweight'
-  const effectiveType = set.weightType ?? exerciseWeightType ?? (isBW ? 'bodyweight' : 'single')
-  const effectiveWeight = set.weightKg ?? exerciseWeightKg
-  const setIsBWLoad = isBW && (effectiveWeight == null || effectiveType === 'bodyweight')
+  // Effective values (with exercise-level fallbacks)
+  const effectiveType = set.weightType ?? exerciseWeightType ?? 'single'
+  const effectiveWeight = set.weightKg ?? exerciseWeightKg ?? null
+  // This individual SET is "bodyweight" if its type says so, or if it has no weight
+  const setIsBW = effectiveType === 'bodyweight' || effectiveWeight == null
   const rounds = set.rounds ?? 1
 
-  function handleSelectWeightedKg(weight) {
+  function handleSelectWeight(weight) {
     setShowWeightPicker(false)
-    if (isBW) {
-      onUpdate({ weightKg: weight, weightType: 'single' })
-    } else if (weight !== effectiveWeight) {
-      onUpdate({ weightKg: weight })
-    }
+    // Switching from BW to weighted; default to 'single' if no current weighted type
+    const nextType = (effectiveType === 'bodyweight' || effectiveType == null) ? 'single' : effectiveType
+    onUpdate({ weightKg: weight, weightType: nextType })
   }
   function handleSelectBW() {
     setShowWeightPicker(false)
@@ -57,17 +55,23 @@ export default function SetRow({
   function handleToggleType(nextType) {
     if (nextType !== effectiveType) onUpdate({ weightType: nextType })
   }
-  function handleSelectRounds(n) {
-    setShowRoundsPicker(false)
+
+  function bumpRounds(delta) {
+    const next = Math.max(1, Math.min(999, rounds + delta))
+    if (next !== rounds) onUpdate({ rounds: next })
+  }
+  function handleRoundsInput(e) {
+    const raw = e.target.value.replace(/[^0-9]/g, '')
+    if (raw === '') return
+    const n = Math.max(1, Math.min(999, parseInt(raw, 10)))
     if (n !== rounds) onUpdate({ rounds: n })
   }
 
   const repsNum = repsStr.trim() === '' ? null : parseInt(repsStr, 10)
 
-  // Chip label for the weight chip
+  // Chip label
   let chipLabel
-  if (setIsBWLoad) chipLabel = 'BW'
-  else if (effectiveWeight == null) chipLabel = '—'
+  if (setIsBW) chipLabel = 'BW'
   else chipLabel = effectiveType === 'double' ? `2×${effectiveWeight}` : `${effectiveWeight}`
 
   return (
@@ -75,7 +79,7 @@ export default function SetRow({
       {/* Set number */}
       <span className="text-xs text-gray-600 w-5 text-right flex-shrink-0">{setNumber}</span>
 
-      {/* Reps input + rounds × badge */}
+      {/* Reps input + rounds badge inside */}
       <div className="flex-1 relative">
         <input
           type="text"
@@ -87,20 +91,20 @@ export default function SetRow({
           onBlur={handleRepsBlur}
           placeholder="Reps"
           className={`w-full rounded-lg bg-gray-900 border border-gray-700
-                     pl-3 pr-8 py-2.5 text-gray-100 text-center text-base min-h-[44px]
+                     pl-3 pr-10 py-2.5 text-gray-100 text-center text-base min-h-[44px]
                      focus:outline-none focus:border-green-500 transition-colors
                      ${effectiveType === 'single' && repsNum ? 'text-transparent' : ''}`}
         />
         {effectiveType === 'single' && repsNum != null && (
-          <span className="absolute inset-y-0 left-3 right-8 flex items-center justify-center text-base text-gray-100 pointer-events-none">
+          <span className="absolute inset-y-0 left-3 right-10 flex items-center justify-center text-base text-gray-100 pointer-events-none">
             {repsNum}/{repsNum}
           </span>
         )}
-        {/* Rounds badge — sits inside the reps cell, top-right */}
+        {/* Rounds badge */}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setShowRoundsPicker(v => !v) }}
-          className={`absolute top-1/2 -translate-y-1/2 right-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors
+          className={`absolute top-1/2 -translate-y-1/2 right-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors min-w-[28px]
             ${rounds > 1
               ? 'bg-green-700 text-white'
               : 'bg-gray-800 text-gray-600 active:text-gray-400'}`}
@@ -117,25 +121,42 @@ export default function SetRow({
               aria-label="Close rounds picker"
             />
             <div className="absolute right-0 top-full mt-1 z-20 bg-gray-900 border border-gray-700
-                            rounded-lg shadow-xl py-1 max-h-56 overflow-y-auto min-w-[80px]">
-              {ROUNDS_OPTIONS.map(n => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => handleSelectRounds(n)}
-                  className={`block w-full text-left px-3 py-1.5 text-sm whitespace-nowrap
-                    ${n === rounds ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
-                >
-                  ×{n} rounds
-                </button>
-              ))}
+                            rounded-lg shadow-xl p-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => bumpRounds(-1)}
+                className="h-8 w-8 rounded-md bg-gray-800 active:bg-gray-700
+                           flex items-center justify-center text-gray-200"
+                aria-label="Decrease rounds"
+              >
+                <Minus size={14} />
+              </button>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={rounds}
+                onChange={handleRoundsInput}
+                className="w-12 bg-gray-800 border border-gray-700 rounded-md
+                           px-2 py-1 text-center text-sm text-gray-100
+                           focus:outline-none focus:border-green-500"
+              />
+              <button
+                type="button"
+                onClick={() => bumpRounds(1)}
+                className="h-8 w-8 rounded-md bg-gray-800 active:bg-gray-700
+                           flex items-center justify-center text-gray-200"
+                aria-label="Increase rounds"
+              >
+                <Plus size={14} />
+              </button>
+              <span className="text-[10px] text-gray-500 ml-1">rounds</span>
             </div>
           </>
         )}
       </div>
 
-      {/* 1×/2× toggle — only for non-BW exercises */}
-      {!isBW && (
+      {/* 1×/2× toggle — hidden when this set is BW */}
+      {!setIsBW ? (
         <div className="flex rounded-md overflow-hidden border border-gray-700 flex-shrink-0">
           {['single', 'double'].map(wt => (
             <button
@@ -151,9 +172,12 @@ export default function SetRow({
             </button>
           ))}
         </div>
+      ) : (
+        // Reserve column space so rows stay aligned with the header
+        <div className="w-[46px] flex-shrink-0" />
       )}
 
-      {/* Weight chip */}
+      {/* Weight chip — always includes BW option in the picker */}
       <div className="relative flex-shrink-0">
         <button
           type="button"
@@ -164,7 +188,7 @@ export default function SetRow({
           aria-label="Set weight"
         >
           {chipLabel}
-          {!setIsBWLoad && chipLabel !== '—' && (
+          {!setIsBW && (
             <span className="text-[9px] text-gray-600 ml-0.5">kg</span>
           )}
         </button>
@@ -178,27 +202,25 @@ export default function SetRow({
             />
             <div className="absolute right-0 top-full mt-1 z-20 bg-gray-900 border border-gray-700
                             rounded-lg shadow-xl py-1 max-h-64 overflow-y-auto">
-              {isBW && (
-                <button
-                  type="button"
-                  onClick={handleSelectBW}
-                  className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
-                    ${setIsBWLoad ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
-                >
-                  BW
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleSelectBW}
+                className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
+                  ${setIsBW ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
+              >
+                BW
+              </button>
               {WEIGHT_OPTIONS.map(w => {
-                const selected = !setIsBWLoad && w === effectiveWeight
+                const selected = !setIsBW && w === effectiveWeight
                 return (
                   <button
                     key={w}
                     type="button"
-                    onClick={() => handleSelectWeightedKg(w)}
+                    onClick={() => handleSelectWeight(w)}
                     className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
                       ${selected ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
                   >
-                    {isBW ? `+${w}kg` : `${w}kg`}
+                    {w}kg
                   </button>
                 )
               })}
