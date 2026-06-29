@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Trash2, ChevronDown } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import ExerciseAutocomplete from './ExerciseAutocomplete'
 import SetRow from './SetRow'
 import { formatPB } from '../../lib/utils'
 import { getPersonalBest } from '../../lib/db'
 import { useAuth } from '../../context/AuthContext'
-
-const WEIGHTS = [12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 
 export default function ExerciseRow({
   exercise,
@@ -60,10 +58,9 @@ export default function ExerciseRow({
         </div>
       )}
 
-      {/* Default weight + BW toggle row (1×/2× lives per-set now) */}
+      {/* BW toggle + Goal reps row (per-set weight/type lives on each set) */}
       <div className="flex gap-2 items-center">
         {isBodyweight ? (
-          /* Bodyweight mode — label + button to switch back to weighted */
           <button
             type="button"
             onClick={() => onUpdate({ weightType: 'single', weightKg: 24 })}
@@ -71,38 +68,18 @@ export default function ExerciseRow({
                        px-3 py-2 text-xs text-gray-400 min-h-[40px]
                        active:bg-gray-700 transition-colors flex-1 text-left"
           >
-            Bodyweight <span className="text-gray-600 ml-1">· tap to add weight</span>
+            Bodyweight <span className="text-gray-600 ml-1">· tap to switch</span>
           </button>
         ) : (
-          <>
-            {/* Default weight dropdown (per-set type lives in SetRow) */}
-            <div className="relative flex-1">
-              <select
-                value={exercise.weightKg ?? 24}
-                onChange={e => onUpdate({ weightKg: Number(e.target.value) })}
-                className="w-full appearance-none rounded-lg bg-gray-900 border border-gray-700
-                           px-3 py-2 pr-8 text-gray-100 text-sm min-h-[40px]
-                           focus:outline-none focus:border-green-500"
-              >
-                {WEIGHTS.map(w => (
-                  <option key={w} value={w}>{w} kg</option>
-                ))}
-              </select>
-              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-            </div>
-
-            {/* BW toggle */}
-            <button
-              type="button"
-              onClick={() => onUpdate({ weightType: 'bodyweight', weightKg: null })}
-              className="rounded-lg bg-gray-900 border border-gray-700
-                         px-2 py-2 text-[10px] text-gray-500 min-h-[40px]
-                         active:bg-gray-700 transition-colors flex-shrink-0"
-              title="Switch to bodyweight"
-            >
-              BW
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => onUpdate({ weightType: 'bodyweight', weightKg: null })}
+            className="rounded-lg bg-gray-900 border border-gray-700
+                       px-3 py-2 text-xs text-gray-400 min-h-[40px]
+                       active:bg-gray-700 transition-colors flex-1 text-left"
+          >
+            Weighted <span className="text-gray-600 ml-1">· tap for bodyweight</span>
+          </button>
         )}
 
         {/* Goal reps */}
@@ -138,7 +115,6 @@ export default function ExerciseRow({
             {isBodyweight && (
               <span className="w-[52px] text-center text-[10px] text-gray-600 uppercase tracking-wider">Load</span>
             )}
-            <span className="w-12 text-center text-[10px] text-gray-600 uppercase tracking-wider">Time</span>
             <span className="w-9" />
           </div>
           {exercise.sets.map((set, idx) => (

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS exercise_sets (
   duration_seconds integer,
   weight_kg integer,            -- optional per-set weight override; falls back to workout_exercises.weight_kg
   weight_type text,             -- optional per-set type override ('single'|'double'|'bodyweight'); falls back to workout_exercises.weight_type
+  rounds integer DEFAULT 1,     -- # of rounds for this set entry; total reps = reps * rounds
   created_at timestamptz DEFAULT now(),
   CONSTRAINT fk_workout_exercise FOREIGN KEY (workout_exercise_id) REFERENCES workout_exercises(id) ON DELETE CASCADE
 );
@@ -54,6 +55,8 @@ CREATE TABLE IF NOT EXISTS exercise_sets (
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_kg integer;
 -- Per-set weight_type ('single' | 'double' | 'bodyweight' | null = inherit from exercise)
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_type text;
+-- Per-set rounds multiplier (total reps in the set = reps * rounds). Defaults to 1.
+ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS rounds integer DEFAULT 1;
 
 -- For existing databases, rename goal_sets → goal_reps (semantics changed to track reps, not sets).
 -- Existing numeric values are preserved as-is but their meaning is now "target reps" instead of "target sets".

@@ -14,7 +14,8 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
   }
 
   function totalReps(sets) {
-    return sets.reduce((a, s) => a + (s.reps ?? 0), 0)
+    // Total respects the rounds multiplier on each set
+    return sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
   }
 
   // PB buckets keyed by (per-set effective type, per-set effective weight).
@@ -36,7 +37,8 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
         setsByBucket.get(key).sets.push(s)
       })
       for (const [key, group] of setsByBucket) {
-        const sessionTotal = group.sets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
+        // Session total = sum(reps * rounds); best single set = max(reps) (per-round, not multiplied)
+        const sessionTotal = group.sets.reduce((sum, s) => sum + (s.reps ?? 0) * (s.rounds ?? 1), 0)
         const sessionMax = Math.max(0, ...group.sets.map(s => s.reps ?? 0))
         const existing = pbBuckets.get(key) ?? {
           weight_kg: group.weight_kg,
@@ -133,10 +135,12 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
                       const lbl = effLabel(s)
                       const show = lbl !== prev
                       prev = lbl
+                      const r = s.rounds ?? 1
                       return (
                         <span key={si} className="text-xs bg-gray-700 text-gray-300 rounded-md px-2 py-1">
                           {show && <span className="text-blue-400 mr-1">@{lbl}</span>}
                           {effReps(s)} reps
+                          {r > 1 && <span className="text-green-400 ml-1">×{r}</span>}
                         </span>
                       )
                     })}

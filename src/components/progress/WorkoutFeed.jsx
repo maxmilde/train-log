@@ -142,7 +142,8 @@ export default function WorkoutFeed() {
                     .slice()
                     .filter(s => s.reps != null)  // skip empty sets
                     .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))
-                  const totalReps = sets.reduce((a, s) => a + (s.reps ?? 0), 0)
+                  // Total reps respects per-set rounds
+                  const totalReps = sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
                   const exIsBW = ex.weight_type === 'bodyweight'
                   const headerWeight = exIsBW
                     ? 'BW'
@@ -171,12 +172,14 @@ export default function WorkoutFeed() {
                           const lbl = effLabel(s)
                           const showLabel = lbl !== prevLabel
                           prevLabel = lbl
+                          const r = s.rounds ?? 1
                           return (
                             <span key={si} className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
                               {showLabel && (
                                 <span className="text-blue-400 mr-0.5">@{lbl}</span>
                               )}
                               {s.reps ?? '—'}
+                              {r > 1 && <span className="text-gray-500">×{r}</span>}
                             </span>
                           )
                         })}

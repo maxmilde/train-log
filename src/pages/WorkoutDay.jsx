@@ -39,13 +39,13 @@ function normExercise(ex) {
     sets: (ex.exercise_sets ?? [])
       .sort((a, b) => a.set_number - b.set_number)
       .map(s => ({
-        id:              s.id,
-        setNumber:       s.set_number,
-        reps:            s.reps ?? null,
-        durationSeconds: s.duration_seconds ?? null,
+        id:         s.id,
+        setNumber:  s.set_number,
+        reps:       s.reps ?? null,
         // Per-set overrides; null = inherit exercise default
-        weightKg:        s.weight_kg ?? null,
-        weightType:      s.weight_type ?? null,
+        weightKg:   s.weight_kg ?? null,
+        weightType: s.weight_type ?? null,
+        rounds:     s.rounds ?? 1,
       })),
   }
 }
@@ -282,12 +282,14 @@ export default function WorkoutDayPage() {
         : lastSet
           ? (lastSet.weightType ?? ex.weightType ?? 'single')
           : 'single'
+      // Rounds default to last set's rounds, else 1
+      const lastSetRounds = lastSet ? (lastSet.rounds ?? 1) : 1
       const newSet = await upsertSet(user.id, exerciseId, {
         set_number: setNumber,
         reps: null,
-        duration_seconds: null,
         weight_kg: defaultWeight,
         weight_type: defaultType,
+        rounds: lastSetRounds,
       })
       setState(prev => ({
         ...prev,
@@ -297,9 +299,9 @@ export default function WorkoutDayPage() {
                 id: newSet.id,
                 setNumber: newSet.set_number,
                 reps: null,
-                durationSeconds: null,
                 weightKg: newSet.weight_kg ?? defaultWeight,
                 weightType: newSet.weight_type ?? defaultType,
+                rounds: newSet.rounds ?? lastSetRounds,
               }] }
             : e
         ),
@@ -325,12 +327,12 @@ export default function WorkoutDayPage() {
       if (!set) return
       const merged = { ...set, ...patch }
       await upsertSet(user.id, exerciseId, {
-        id:               setId,
-        set_number:       merged.setNumber,
-        reps:             merged.reps,
-        duration_seconds: merged.durationSeconds,
-        weight_kg:        merged.weightKg ?? null,
-        weight_type:      merged.weightType ?? null,
+        id:          setId,
+        set_number:  merged.setNumber,
+        reps:        merged.reps,
+        weight_kg:   merged.weightKg ?? null,
+        weight_type: merged.weightType ?? null,
+        rounds:      merged.rounds ?? 1,
       })
     } catch (e) { console.error(e) }
   }, [user, state])

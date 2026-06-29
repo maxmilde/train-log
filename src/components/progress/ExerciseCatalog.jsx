@@ -1,7 +1,14 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { getExerciseCatalog, renameExercise, deleteExerciseByName } from '../../lib/db'
 import { Pencil, Trash2, Check, X } from 'lucide-react'
+
+const SORTS = [
+  { id: 'az',     label: 'A–Z' },
+  { id: 'za',     label: 'Z–A' },
+  { id: 'volDesc', label: 'Volume ↓' },
+  { id: 'volAsc',  label: 'Volume ↑' },
+]
 
 export default function ExerciseCatalog() {
   const { user } = useAuth()
@@ -10,6 +17,7 @@ export default function ExerciseCatalog() {
   const [editingName, setEditingName] = useState(null)
   const [editValue, setEditValue] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sortId, setSortId] = useState('az')
 
   const load = useCallback(async () => {
     if (!user) return
@@ -86,12 +94,41 @@ export default function ExerciseCatalog() {
     return <p className="text-gray-600 text-sm text-center py-12">No exercises logged yet</p>
   }
 
+  const sortedItems = (() => {
+    const arr = [...items]
+    switch (sortId) {
+      case 'za':      return arr.sort((a, b) => b.name.localeCompare(a.name))
+      case 'volDesc': return arr.sort((a, b) => (b.totalReps ?? 0) - (a.totalReps ?? 0))
+      case 'volAsc':  return arr.sort((a, b) => (a.totalReps ?? 0) - (b.totalReps ?? 0))
+      case 'az':
+      default:        return arr.sort((a, b) => a.name.localeCompare(b.name))
+    }
+  })()
+
   return (
     <div className="space-y-2">
       <p className="text-xs text-gray-500 px-1 mb-2">
         {items.length} exercise{items.length !== 1 ? 's' : ''} · tap to rename or delete
       </p>
-      {items.map(item => {
+
+      {/* Sort selector */}
+      <div className="flex bg-gray-800 rounded-lg p-1 gap-1 mb-2">
+        {SORTS.map(s => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setSortId(s.id)}
+            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors
+              ${sortId === s.id
+                ? 'bg-green-600 text-white'
+                : 'text-gray-400 active:text-gray-200'}`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {sortedItems.map(item => {
         const isEditing = editingName === item.name
         return (
           <div key={item.name} className="bg-gray-800 rounded-xl px-4 py-3">

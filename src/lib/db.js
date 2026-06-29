@@ -113,7 +113,7 @@ export async function deleteExercise(exerciseId) {
 // ── EXERCISE SETS ───────────────────────────────────────────────────────────────
 
 export async function upsertSet(userId, workoutExerciseId, set) {
-  const { id, set_number, reps, duration_seconds, weight_kg, weight_type } = set
+  const { id, set_number, reps, duration_seconds, weight_kg, weight_type, rounds } = set
   const payload = {
     user_id: userId,
     workout_exercise_id: workoutExerciseId,
@@ -121,9 +121,9 @@ export async function upsertSet(userId, workoutExerciseId, set) {
     reps,
     duration_seconds,
   }
-  // Per-set overrides; only include if explicitly provided
   if (weight_kg   !== undefined) payload.weight_kg = weight_kg
   if (weight_type !== undefined) payload.weight_type = weight_type
+  if (rounds      !== undefined) payload.rounds = rounds
   if (id) payload.id = id
 
   const { data, error } = await supabase
@@ -357,7 +357,7 @@ export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
 export async function getExerciseCatalog(userId) {
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('exercise_name, weight_type, weight_kg, workout_days(date, submitted), exercise_sets(reps)')
+    .select('exercise_name, weight_type, weight_kg, workout_days(date, submitted), exercise_sets(reps, rounds)')
     .eq('user_id', userId)
   if (error) throw error
 
@@ -373,7 +373,9 @@ export async function getExerciseCatalog(userId) {
     const entry = map.get(name)
     entry.sessions += 1
     if (!entry.lastDate || day.date > entry.lastDate) entry.lastDate = day.date
-    entry.totalReps += (ex.exercise_sets ?? []).reduce((a, s) => a + (s.reps ?? 0), 0)
+    // Total reps respects per-set rounds (reps * rounds)
+    entry.totalReps += (ex.exercise_sets ?? [])
+      .reduce((a, s) => a + ((s.reps ?? 0) * (s.rounds ?? 1)), 0)
     if (ex.weight_type === 'bodyweight') entry.configs.add('BW')
     else if (ex.weight_type === 'double') entry.configs.add(`2×${ex.weight_kg}kg`)
     else entry.configs.add(`${ex.weight_kg}kg`)
@@ -405,16 +407,16 @@ export async function deleteExerciseByName(userId, name) {
   if (error) throw error
 }
 
-// PBs respect per-set type AND weight overrides:
-//   - Each set's "effective type" = set.weight_type if present, else exercise's weight_type.
-//   - Each set's "effective weight" = set.weight_kg if present, else exercise's weight_kg.
-//   - For target (name, weightType, weightKg), include only sets whose effective values match.
-//   - Skip empty sets (reps == null).
+// PBs respect per-set type+weight overrides AND the rounds multiplier:
+//   - Each set's effective type/weight = per-set override or exercise default
+//   - "max single set" = best per-round reps (e.g. 10 x 5 rounds → best = 10, not 50)
+//   - "max session total volume" = sum of (reps * rounds) across matching sets
+//   - Empty sets (reps == null) skipped
 export async function getPersonalBest(userId, exerciseName, weightType, weightKg) {
   if (!exerciseName) return null
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type)')
+    .select('id, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type, rounds)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
   if (error) throw error
@@ -427,7 +429,7 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
     const exDefaultType   = ex.weight_type
     const exDefaultWeight = ex.weight_kg
     const matchingSets = (ex.exercise_sets ?? []).filter(s => {
-      if (s.reps == null) return false  // skip empty sets
+      if (s.reps == null) return false
       const eType = s.weight_type ?? exDefaultType
       if (eType !== weightType) return false
       if (weightType === 'bodyweight') return true
@@ -435,7 +437,9 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
       return eWeight === weightKg
     })
     if (matchingSets.length === 0) continue
-    const sessionTotal = matchingSets.reduce((sum, s) => sum + (s.reps ?? 0), 0)
+    // Session total = sum(reps * rounds) for the matching sets
+    const sessionTotal = matchingSets.reduce((sum, s) => sum + ((s.reps ?? 0) * (s.rounds ?? 1)), 0)
+    // Best single set = max(reps) — per-round, NOT multiplied by rounds
     const sessionMax = Math.max(...matchingSets.map(s => s.reps ?? 0))
     if (sessionTotal > maxTotalReps) maxTotalReps = sessionTotal
     if (sessionMax > maxSingleSetReps) maxSingleSetReps = sessionMax
@@ -452,7 +456,7 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
 export async function getWorkoutFeed(userId, { limit = 20, offset = 0 } = {}) {
   const { data, error } = await supabase
     .from('workout_days')
-    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type, set_number))')
+    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type, set_number, rounds))')
     .eq('user_id', userId)
     .eq('submitted', true)
     .order('date', { ascending: false })
@@ -465,7 +469,7 @@ export async function getExerciseHistory(userId, exerciseName) {
   if (!exerciseName) return []
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, duration_seconds, weight_kg, weight_type)')
+    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, weight_kg, weight_type, rounds)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
     .order('created_at', { ascending: true })
@@ -475,10 +479,10 @@ export async function getExerciseHistory(userId, exerciseName) {
     weight_kg: ex.weight_kg,
     weight_type: ex.weight_type,
     sets: (ex.exercise_sets ?? [])
-      .filter(s => s.reps != null)  // hide empty sets from history
+      .filter(s => s.reps != null)
       .map(s => ({
         ...s,
-        // effective values respect per-set overrides
+        rounds: s.rounds ?? 1,
         effective_weight_kg: s.weight_kg ?? ex.weight_kg,
         effective_weight_type: s.weight_type ?? ex.weight_type,
       })),

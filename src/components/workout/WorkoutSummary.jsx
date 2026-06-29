@@ -31,7 +31,8 @@ export default function WorkoutSummary({ exercises, durationMinutes }) {
         groupMap.set(key, group)
         groups.push(group)
       }
-      groupMap.get(key).totalReps += (set.reps ?? 0)
+      // Total reps respects the rounds multiplier
+      groupMap.get(key).totalReps += (set.reps ?? 0) * (set.rounds ?? 1)
     }
   }
 
