@@ -90,15 +90,24 @@ export default function WorkoutFeed() {
     <div className="space-y-3">
       {workouts.map(w => {
         // Hide orphan exercises (nothing logged) so they don't show as '0 reps' rows
-        const exercises = (w.workout_exercises ?? []).filter(ex =>
+        const allExercises = (w.workout_exercises ?? []).filter(ex =>
           (ex.exercise_sets ?? []).some(s => s.reps != null)
         )
+        // Split top-level exercises from complex-linked ones
+        const topLevelExercises = allExercises.filter(ex => !ex.complex_id)
+        const complexes = (w.workout_complexes ?? []).map(cx => ({
+          ...cx,
+          exercises: allExercises
+            .filter(ex => ex.complex_id === cx.id)
+            .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)),
+        })).filter(cx => cx.exercises.length > 0)
+        const exercises = topLevelExercises  // keep var name for below
         const isOpen = expanded[w.id]
         const dateObj = new Date(w.date + 'T00:00:00')
         const dateLabel = dateObj.toLocaleDateString('en-GB', {
           weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
         })
-        const totalExercises = exercises.length
+        const totalExercises = exercises.length + complexes.length
         const isWorkout = w.day_type === 'workout'
 
         return (
@@ -193,8 +202,37 @@ export default function WorkoutFeed() {
                     </div>
                   )
                 })}
+                {/* Complex blocks */}
+                {complexes.map((cx, ci) => {
+                  const rounds = cx.rounds ?? 1
+                  return (
+                    <div key={`cx-${ci}`} className="border border-purple-900/40 rounded-lg p-2">
+                      <p className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold mb-1.5">
+                        Complex × {rounds} round{rounds !== 1 ? 's' : ''}
+                      </p>
+                      <div className="space-y-1.5">
+                        {cx.exercises.map((ex, ei) => {
+                          const oneSet = (ex.exercise_sets ?? []).find(s => s.reps != null)
+                          if (!oneSet) return null
+                          const t = oneSet.weight_type ?? ex.weight_type
+                          const isBWSet = t === 'bodyweight' || (ex.weight_type === 'bodyweight' && oneSet.weight_kg == null)
+                          const kg = oneSet.weight_kg ?? ex.weight_kg
+                          const lbl = isBWSet ? 'BW' : t === 'double' ? `2×${kg}kg` : `${kg}kg`
+                          const total = (oneSet.reps ?? 0) * (oneSet.rounds ?? 1) * rounds
+                          return (
+                            <div key={ei} className="flex items-center justify-between text-xs">
+                              <span className="text-gray-300 flex-1 truncate">{ex.exercise_name || 'Unnamed'}</span>
+                              <span className="text-gray-500 mx-2">{lbl}</span>
+                              <span className="text-gray-200 tabular-nums">{oneSet.reps} → {total}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
                 {/* Copy to today */}
-                {isWorkout && exercises.length > 0 && (
+                {isWorkout && (exercises.length > 0 || complexes.length > 0) && (
                   <div className="pt-2 border-t border-gray-700">
                     <button
                       type="button"

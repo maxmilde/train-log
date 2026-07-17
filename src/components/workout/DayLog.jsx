@@ -1,5 +1,6 @@
-import { Clock, Plus, Send, Trash2, CheckCircle, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react'
+import { Clock, Plus, Send, Trash2, CheckCircle, ChevronUp, ChevronDown, MessageSquare, Layers } from 'lucide-react'
 import ExerciseRow from './ExerciseRow'
+import ComplexRow from './ComplexRow'
 import WorkoutSummary from './WorkoutSummary'
 
 const DAY_TYPES = [
@@ -19,12 +20,19 @@ export default function DayLog({
   onAddSet,
   onUpdateSet,
   onDeleteSet,
+  onAddComplex,
+  onUpdateComplex,
+  onDeleteComplex,
+  onAddExerciseToComplex,
+  onUpdateComplexExercise,
+  onUpdateComplexSet,
+  onDeleteComplexExercise,
   onSubmit,
   onDeleteDay,
   onDateChange,
   onMoveExercise,
 }) {
-  const { date, dayType, durationMinutes, notes, exercises, submitted } = state
+  const { date, dayType, durationMinutes, notes, exercises, complexes = [], submitted } = state
 
   const dateObj = new Date(date + 'T00:00:00')
   const dateLabel = dateObj.toLocaleDateString('en-GB', {
@@ -39,6 +47,13 @@ export default function DayLog({
   const accentBorder = isWorkout
     ? 'hover:border-green-600 hover:text-green-400'
     : 'hover:border-blue-600 hover:text-blue-400'
+
+  // Merged, ordered list of items (top-level exercises + complexes) so the
+  // user's chosen order is preserved regardless of insertion type.
+  const orderedItems = [
+    ...exercises.map(ex => ({ kind: 'exercise', item: ex, sortKey: ex.displayOrder ?? 0 })),
+    ...complexes.map(cx => ({ kind: 'complex', item: cx, sortKey: cx.displayOrder ?? 0 })),
+  ].sort((a, b) => a.sortKey - b.sortKey)
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
@@ -96,66 +111,101 @@ export default function DayLog({
         ))}
       </div>
 
-      {/* Exercise list — for workout AND active rest */}
+      {/* Exercise + Complex list — for workout AND active rest */}
       {canLogExercises && (
         <div className="space-y-3">
-          {exercises.map((ex, index) => (
-            <div key={ex.id} className="flex gap-1 items-start">
-              {/* Reorder arrows */}
-              {exercises.length > 1 && (
-                <div className="flex flex-col gap-0.5 pt-2 flex-shrink-0">
-                  <button
-                    type="button"
-                    disabled={index === 0}
-                    onClick={() => onMoveExercise(index, index - 1)}
-                    className={`p-1 rounded-lg flex items-center justify-center transition-colors
-                      ${index === 0
-                        ? 'text-gray-700 cursor-default'
-                        : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
-                    aria-label="Move exercise up"
-                  >
-                    <ChevronUp size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={index === exercises.length - 1}
-                    onClick={() => onMoveExercise(index, index + 1)}
-                    className={`p-1 rounded-lg flex items-center justify-center transition-colors
-                      ${index === exercises.length - 1
-                        ? 'text-gray-700 cursor-default'
-                        : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
-                    aria-label="Move exercise down"
-                  >
-                    <ChevronDown size={18} />
-                  </button>
+          {orderedItems.map(({ kind, item }, index) => {
+            if (kind === 'exercise') {
+              const ex = item
+              return (
+                <div key={ex.id} className="flex gap-1 items-start">
+                  {orderedItems.length > 1 && (
+                    <div className="flex flex-col gap-0.5 pt-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => onMoveExercise(index, index - 1)}
+                        className={`p-1 rounded-lg flex items-center justify-center transition-colors
+                          ${index === 0
+                            ? 'text-gray-700 cursor-default'
+                            : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
+                        aria-label="Move exercise up"
+                      >
+                        <ChevronUp size={18} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === orderedItems.length - 1}
+                        onClick={() => onMoveExercise(index, index + 1)}
+                        className={`p-1 rounded-lg flex items-center justify-center transition-colors
+                          ${index === orderedItems.length - 1
+                            ? 'text-gray-700 cursor-default'
+                            : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
+                        aria-label="Move exercise down"
+                      >
+                        <ChevronDown size={18} />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <ExerciseRow
+                      exercise={ex}
+                      exerciseNames={exerciseNames}
+                      onUpdate={patch => onUpdateExercise(ex.id, patch)}
+                      onDelete={() => onDeleteExercise(ex.id)}
+                      onAddSet={() => onAddSet(ex.id)}
+                      onUpdateSet={(setId, patch) => onUpdateSet(ex.id, setId, patch)}
+                      onDeleteSet={setId => onDeleteSet(ex.id, setId)}
+                    />
+                  </div>
                 </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <ExerciseRow
-                  exercise={ex}
+              )
+            }
+            // kind === 'complex'
+            const cx = item
+            return (
+              <div key={cx.id} className="flex-1 min-w-0">
+                <ComplexRow
+                  complex={cx}
                   exerciseNames={exerciseNames}
-                  onUpdate={patch => onUpdateExercise(ex.id, patch)}
-                  onDelete={() => onDeleteExercise(ex.id)}
-                  onAddSet={() => onAddSet(ex.id)}
-                  onUpdateSet={(setId, patch) => onUpdateSet(ex.id, setId, patch)}
-                  onDeleteSet={setId => onDeleteSet(ex.id, setId)}
+                  onUpdate={patch => onUpdateComplex(cx.id, patch)}
+                  onDelete={() => onDeleteComplex(cx.id)}
+                  onAddExercise={() => onAddExerciseToComplex(cx.id)}
+                  onUpdateExercise={(exId, patch) => onUpdateComplexExercise(cx.id, exId, patch)}
+                  onUpdateSet={(exId, patch) => onUpdateComplexSet(cx.id, exId, patch)}
+                  onDeleteExercise={exId => onDeleteComplexExercise(cx.id, exId)}
                 />
               </div>
-            </div>
-          ))}
+            )
+          })}
 
-          <button
-            type="button"
-            onClick={onAddExercise}
-            className={`w-full py-4 rounded-2xl border-2 border-dashed border-gray-700
-                       text-gray-500 text-sm font-medium
-                       ${accentBorder}
-                       active:opacity-80
-                       transition-colors flex items-center justify-center gap-2`}
-          >
-            <Plus size={16} />
-            Add Exercise
-          </button>
+          {/* Add buttons row */}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onAddExercise}
+              className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
+                         text-gray-500 text-sm font-medium
+                         ${accentBorder}
+                         active:opacity-80
+                         transition-colors flex items-center justify-center gap-2`}
+            >
+              <Plus size={16} />
+              Add Exercise
+            </button>
+            <button
+              type="button"
+              onClick={onAddComplex}
+              className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
+                         text-gray-500 text-sm font-medium
+                         ${accentBorder}
+                         active:opacity-80
+                         transition-colors flex items-center justify-center gap-2`}
+            >
+              <Layers size={16} />
+              Add Complex
+            </button>
+          </div>
         </div>
       )}
 
@@ -246,8 +296,8 @@ export default function DayLog({
       </div>
 
       {/* Post-submission summary */}
-      {submitted && canLogExercises && exercises.length > 0 && (
-        <WorkoutSummary exercises={exercises} durationMinutes={durationMinutes} />
+      {submitted && canLogExercises && (exercises.length > 0 || complexes.length > 0) && (
+        <WorkoutSummary exercises={exercises} complexes={complexes} durationMinutes={durationMinutes} />
       )}
     </div>
   )

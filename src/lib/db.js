@@ -48,14 +48,26 @@ export async function getDayFull(userId, date) {
   if (dayError && dayError.code === 'PGRST116') return null
   if (dayError) throw dayError
 
-  const { data: exercises, error: exError } = await supabase
-    .from('workout_exercises')
-    .select('*, exercise_sets(*)')
-    .eq('workout_day_id', day.id)
-    .order('display_order', { ascending: true })
+  const [{ data: exercises, error: exError }, { data: complexes, error: cxError }] = await Promise.all([
+    supabase
+      .from('workout_exercises')
+      .select('*, exercise_sets(*)')
+      .eq('workout_day_id', day.id)
+      .order('display_order', { ascending: true }),
+    supabase
+      .from('workout_complexes')
+      .select('*')
+      .eq('workout_day_id', day.id)
+      .order('display_order', { ascending: true }),
+  ])
   if (exError) throw exError
+  if (cxError) throw cxError
 
-  return { ...day, exercises: exercises ?? [] }
+  return {
+    ...day,
+    exercises: exercises ?? [],
+    complexes: complexes ?? [],
+  }
 }
 
 export async function upsertDay(userId, { date, day_type, duration_minutes, notes, submitted }) {
@@ -81,7 +93,7 @@ export async function deleteDay(dayId) {
 // ── WORKOUT EXERCISES ───────────────────────────────────────────────────────────
 
 export async function upsertExercise(userId, workoutDayId, exercise) {
-  const { id, exercise_name, weight_kg, weight_type, display_order } = exercise
+  const { id, exercise_name, weight_kg, weight_type, display_order, complex_id } = exercise
   const payload = {
     user_id: userId,
     workout_day_id: workoutDayId,
@@ -90,6 +102,7 @@ export async function upsertExercise(userId, workoutDayId, exercise) {
     weight_type,
     display_order: display_order ?? 0,
   }
+  if (complex_id !== undefined) payload.complex_id = complex_id
   if (id) payload.id = id
 
   const { data, error } = await supabase
@@ -106,6 +119,35 @@ export async function deleteExercise(exerciseId) {
     .from('workout_exercises')
     .delete()
     .eq('id', exerciseId)
+  if (error) throw error
+}
+
+// ── COMPLEXES ───────────────────────────────────────────────────────────────────
+
+export async function upsertComplex(userId, workoutDayId, complex) {
+  const { id, rounds, display_order } = complex
+  const payload = {
+    user_id: userId,
+    workout_day_id: workoutDayId,
+    rounds: rounds ?? 1,
+    display_order: display_order ?? 0,
+  }
+  if (id) payload.id = id
+  const { data, error } = await supabase
+    .from('workout_complexes')
+    .upsert(payload, { onConflict: 'id' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteComplex(complexId) {
+  // Cascades to workout_exercises rows (which cascade to exercise_sets)
+  const { error } = await supabase
+    .from('workout_complexes')
+    .delete()
+    .eq('id', complexId)
   if (error) throw error
 }
 
@@ -186,7 +228,7 @@ export async function getSuggestionStats(userId, daysBack = 30) {
   // 1) Fetch ALL exercises (for the catalog of names + their typical configs)
   const { data: allExs, error: allErr } = await supabase
     .from('workout_exercises')
-    .select('exercise_name, weight_kg, weight_type, workout_days(date, submitted), exercise_sets(reps)')
+    .select('exercise_name, weight_kg, weight_type, complex_id, workout_days(date, submitted), exercise_sets(reps, rounds), workout_complexes(rounds)')
     .eq('user_id', userId)
   if (allErr) throw allErr
 
@@ -221,8 +263,10 @@ export async function getSuggestionStats(userId, daysBack = 30) {
       s.weight_type = ex.weight_type
     }
     if (day.date >= sinceStr) {
+      const complexRounds = ex.workout_complexes?.rounds ?? 1
       s.recentSessions += 1
-      s.recentReps += (ex.exercise_sets ?? []).reduce((a, ss) => a + (ss.reps ?? 0), 0)
+      s.recentReps += (ex.exercise_sets ?? [])
+        .reduce((a, ss) => a + (ss.reps ?? 0) * (ss.rounds ?? 1) * complexRounds, 0)
     }
     workoutDates.add(day.date)
   }
@@ -355,7 +399,7 @@ export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
 export async function getExerciseCatalog(userId) {
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('exercise_name, weight_type, weight_kg, workout_days(date, submitted), exercise_sets(reps, rounds)')
+    .select('exercise_name, weight_type, weight_kg, complex_id, workout_days(date, submitted), exercise_sets(reps, rounds), workout_complexes(rounds)')
     .eq('user_id', userId)
   if (error) throw error
 
@@ -366,14 +410,18 @@ export async function getExerciseCatalog(userId) {
     const day = ex.workout_days
     if (!day?.submitted) continue
     const nonEmptySets = (ex.exercise_sets ?? []).filter(s => s.reps != null)
-    if (nonEmptySets.length === 0) continue  // orphan exercise — nothing logged
+    if (nonEmptySets.length === 0) continue
+    const complexRounds = ex.workout_complexes?.rounds ?? 1
     if (!map.has(name)) {
       map.set(name, { name, sessions: 0, lastDate: null, totalReps: 0, configs: new Set() })
     }
     const entry = map.get(name)
     entry.sessions += 1
     if (!entry.lastDate || day.date > entry.lastDate) entry.lastDate = day.date
-    entry.totalReps += nonEmptySets.reduce((a, s) => a + ((s.reps ?? 0) * (s.rounds ?? 1)), 0)
+    entry.totalReps += nonEmptySets.reduce(
+      (a, s) => a + ((s.reps ?? 0) * (s.rounds ?? 1) * complexRounds),
+      0
+    )
     if (ex.weight_type === 'bodyweight') entry.configs.add('BW')
     else if (ex.weight_type === 'double') entry.configs.add(`2×${ex.weight_kg}kg`)
     else entry.configs.add(`${ex.weight_kg}kg`)
@@ -412,9 +460,10 @@ export async function deleteExerciseByName(userId, name) {
 //   - Empty sets (reps == null) skipped
 export async function getPersonalBest(userId, exerciseName, weightType, weightKg) {
   if (!exerciseName) return null
+  // Also fetch parent complex's rounds so complex-linked exercises get their multiplier.
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type, rounds)')
+    .select('id, weight_kg, weight_type, complex_id, exercise_sets(reps, weight_kg, weight_type, rounds), workout_complexes(rounds)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
   if (error) throw error
@@ -426,6 +475,7 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
   for (const ex of data) {
     const exDefaultType   = ex.weight_type
     const exDefaultWeight = ex.weight_kg
+    const complexRounds   = ex.workout_complexes?.rounds ?? 1
     const matchingSets = (ex.exercise_sets ?? []).filter(s => {
       if (s.reps == null) return false
       const eType = s.weight_type ?? exDefaultType
@@ -435,8 +485,11 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
       return eWeight === weightKg
     })
     if (matchingSets.length === 0) continue
-    // Session total = sum(reps * rounds) for the matching sets
-    const sessionTotal = matchingSets.reduce((sum, s) => sum + ((s.reps ?? 0) * (s.rounds ?? 1)), 0)
+    // Session total = sum(reps * per-set rounds * complex rounds)
+    const sessionTotal = matchingSets.reduce(
+      (sum, s) => sum + ((s.reps ?? 0) * (s.rounds ?? 1) * complexRounds),
+      0
+    )
     // Best single set = max(reps) — per-round, NOT multiplied by rounds
     const sessionMax = Math.max(...matchingSets.map(s => s.reps ?? 0))
     if (sessionTotal > maxTotalReps) maxTotalReps = sessionTotal
@@ -454,7 +507,11 @@ export async function getPersonalBest(userId, exerciseName, weightType, weightKg
 export async function getWorkoutFeed(userId, { limit = 20, offset = 0 } = {}) {
   const { data, error } = await supabase
     .from('workout_days')
-    .select('*, workout_exercises(exercise_name, weight_kg, weight_type, exercise_sets(reps, weight_kg, weight_type, set_number, rounds))')
+    .select(`
+      *,
+      workout_exercises(exercise_name, weight_kg, weight_type, complex_id, display_order, exercise_sets(reps, weight_kg, weight_type, set_number, rounds)),
+      workout_complexes(id, rounds, display_order)
+    `)
     .eq('user_id', userId)
     .eq('submitted', true)
     .order('date', { ascending: false })
@@ -467,24 +524,29 @@ export async function getExerciseHistory(userId, exerciseName) {
   if (!exerciseName) return []
   const { data, error } = await supabase
     .from('workout_exercises')
-    .select('id, weight_kg, weight_type, workout_days(date), exercise_sets(set_number, reps, weight_kg, weight_type, rounds)')
+    .select('id, weight_kg, weight_type, complex_id, workout_days(date), exercise_sets(set_number, reps, weight_kg, weight_type, rounds), workout_complexes(rounds)')
     .eq('user_id', userId)
     .eq('exercise_name', exerciseName)
     .order('created_at', { ascending: true })
   if (error) throw error
-  return (data ?? []).map(ex => ({
-    date: ex.workout_days?.date,
-    weight_kg: ex.weight_kg,
-    weight_type: ex.weight_type,
-    sets: (ex.exercise_sets ?? [])
-      .filter(s => s.reps != null)
-      .map(s => ({
-        ...s,
-        rounds: s.rounds ?? 1,
-        effective_weight_kg: s.weight_kg ?? ex.weight_kg,
-        effective_weight_type: s.weight_type ?? ex.weight_type,
-      })),
-  }))
+  return (data ?? []).map(ex => {
+    const complexRounds = ex.workout_complexes?.rounds ?? 1
+    return {
+      date: ex.workout_days?.date,
+      weight_kg: ex.weight_kg,
+      weight_type: ex.weight_type,
+      complex_rounds: complexRounds,
+      sets: (ex.exercise_sets ?? [])
+        .filter(s => s.reps != null)
+        .map(s => ({
+          ...s,
+          rounds: s.rounds ?? 1,
+          complex_rounds: complexRounds,
+          effective_weight_kg: s.weight_kg ?? ex.weight_kg,
+          effective_weight_type: s.weight_type ?? ex.weight_type,
+        })),
+    }
+  })
   // Drop entries with no date or zero non-empty sets — these are orphan
   // exercise rows from sessions where nothing was actually logged.
   .filter(e => e.date && e.sets.length > 0)

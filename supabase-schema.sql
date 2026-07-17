@@ -31,10 +31,23 @@ CREATE TABLE IF NOT EXISTS workout_exercises (
   exercise_name text NOT NULL DEFAULT '',
   weight_kg integer,
   weight_type text CHECK (weight_type IN ('single', 'double')) DEFAULT 'single',
-  goal_reps integer,            -- target total reps for this exercise (sum across all sets)
+  goal_reps integer,            -- (deprecated) target total reps
   display_order integer DEFAULT 0,
+  complex_id uuid,              -- optional: when set, this exercise belongs to a workout_complex
   created_at timestamptz DEFAULT now(),
   CONSTRAINT fk_workout_day FOREIGN KEY (workout_day_id) REFERENCES workout_days(id) ON DELETE CASCADE
+);
+
+-- Complexes group multiple exercises that repeat together as a unit.
+-- Each complex has a rounds multiplier applied to every exercise inside it.
+CREATE TABLE IF NOT EXISTS workout_complexes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workout_day_id uuid NOT NULL,
+  user_id uuid REFERENCES auth.users NOT NULL,
+  rounds integer DEFAULT 1,
+  display_order integer DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  CONSTRAINT fk_complex_day FOREIGN KEY (workout_day_id) REFERENCES workout_days(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS exercise_sets (
@@ -57,6 +70,20 @@ ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_kg integer;
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_type text;
 -- Per-set rounds multiplier (total reps in the set = reps * rounds). Defaults to 1.
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS rounds integer DEFAULT 1;
+-- Complex membership: exercises can belong to a complex whose rounds multiply their reps.
+ALTER TABLE workout_exercises ADD COLUMN IF NOT EXISTS complex_id uuid;
+-- FK is added below via a DO block to be idempotent (RESET / re-run safe).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'fk_exercise_complex' AND table_name = 'workout_exercises'
+  ) THEN
+    ALTER TABLE workout_exercises
+      ADD CONSTRAINT fk_exercise_complex
+      FOREIGN KEY (complex_id) REFERENCES workout_complexes(id) ON DELETE CASCADE;
+  END IF;
+END$$;
 
 -- For existing databases, rename goal_sets → goal_reps (semantics changed to track reps, not sets).
 -- Existing numeric values are preserved as-is but their meaning is now "target reps" instead of "target sets".
@@ -87,12 +114,26 @@ CREATE INDEX IF NOT EXISTS idx_workout_exercises_user_name
 CREATE INDEX IF NOT EXISTS idx_exercise_sets_exercise
   ON exercise_sets(workout_exercise_id);
 
+CREATE INDEX IF NOT EXISTS idx_workout_complexes_day
+  ON workout_complexes(workout_day_id);
+
+CREATE INDEX IF NOT EXISTS idx_workout_exercises_complex
+  ON workout_exercises(complex_id);
+
 -- ROW LEVEL SECURITY
 
-ALTER TABLE user_settings     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workout_days      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workout_exercises ENABLE ROW LEVEL SECURITY;
-ALTER TABLE exercise_sets     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_settings      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workout_days       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workout_exercises  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exercise_sets      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workout_complexes  ENABLE ROW LEVEL SECURITY;
+
+-- workout_complexes
+DROP POLICY IF EXISTS "own complexes" ON workout_complexes;
+CREATE POLICY "own complexes" ON workout_complexes
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- user_settings
 DROP POLICY IF EXISTS "own settings" ON user_settings;

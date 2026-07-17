@@ -19,13 +19,20 @@ export default function ExerciseRow({
   const [pb, setPb] = useState(null)
   const pbStr = formatPB(pb)
 
-  // Load personal best when exercise name or weight config changes
+  // PB lookup uses the LAST set's effective (type, weight) so the header
+  // reflects what the user is actually working at — not the exercise's stale
+  // default (which is always 1x24kg from the create call). Falls back to the
+  // exercise's own defaults if no sets exist yet.
+  const lastSet = exercise.sets[exercise.sets.length - 1]
+  const pbType = lastSet ? (lastSet.weightType ?? exercise.weightType) : exercise.weightType
+  const rawKg  = lastSet ? (lastSet.weightKg   ?? exercise.weightKg)   : exercise.weightKg
+  const pbKg   = pbType === 'bodyweight' ? null : rawKg
   useEffect(() => {
     if (!user || !exercise.exerciseName) { setPb(null); return }
-    getPersonalBest(user.id, exercise.exerciseName, exercise.weightType, exercise.weightKg)
+    getPersonalBest(user.id, exercise.exerciseName, pbType, pbKg)
       .then(setPb)
       .catch(console.error)
-  }, [exercise.exerciseName, exercise.weightType, exercise.weightKg, user?.id])
+  }, [exercise.exerciseName, pbType, pbKg, user?.id])
 
   return (
     <div className="bg-gray-800 rounded-2xl p-4 space-y-3">

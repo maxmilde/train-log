@@ -1,38 +1,43 @@
 import { Trophy, Clock } from 'lucide-react'
 
-export default function WorkoutSummary({ exercises, durationMinutes }) {
-  if (!exercises || exercises.length === 0) return null
+export default function WorkoutSummary({ exercises, complexes = [], durationMinutes }) {
+  const hasWork = (exercises && exercises.length > 0) || (complexes && complexes.length > 0)
+  if (!hasWork) return null
 
   // Group by (name, set's effective type, set's effective weight). Mixed sessions split into rows:
   // "1×24kg Long Cycle: 10" + "2×24kg Long Cycle: 5" + "2×28kg Long Cycle: 4".
   // Empty sets (reps null/0) are ignored.
+  // Complex-linked exercises get a complex.rounds multiplier applied.
   const groups = []
   const groupMap = new Map()
 
-  for (const ex of exercises) {
-    if (!ex.exerciseName) continue
-    const exDefaultIsBW = ex.weightType === 'bodyweight'
-    for (const set of ex.sets) {
-      if (set.reps == null || set.reps === 0) continue
-      // Effective values fall back to exercise defaults
-      const effType = set.weightType ?? ex.weightType ?? 'single'
-      const isBWSet = effType === 'bodyweight' || (exDefaultIsBW && set.weightKg == null)
-      const effKg = isBWSet ? null : (set.weightKg ?? ex.weightKg)
-      const normType = isBWSet ? 'bodyweight' : effType
-      const key = `${ex.exerciseName}|${normType}|${effKg ?? 'bw'}`
+  const addSet = (exerciseName, exWeightType, exWeightKg, set, extraMultiplier = 1) => {
+    if (set.reps == null || set.reps === 0) return
+    const exDefaultIsBW = exWeightType === 'bodyweight'
+    const effType = set.weightType ?? exWeightType ?? 'single'
+    const isBWSet = effType === 'bodyweight' || (exDefaultIsBW && set.weightKg == null)
+    const effKg = isBWSet ? null : (set.weightKg ?? exWeightKg)
+    const normType = isBWSet ? 'bodyweight' : effType
+    const key = `${exerciseName}|${normType}|${effKg ?? 'bw'}`
+    if (!groupMap.has(key)) {
+      const group = { exerciseName, weightType: normType, weightKg: effKg, totalReps: 0 }
+      groupMap.set(key, group)
+      groups.push(group)
+    }
+    groupMap.get(key).totalReps += (set.reps ?? 0) * (set.rounds ?? 1) * extraMultiplier
+  }
 
-      if (!groupMap.has(key)) {
-        const group = {
-          exerciseName: ex.exerciseName,
-          weightType: normType,
-          weightKg: effKg,
-          totalReps: 0,
-        }
-        groupMap.set(key, group)
-        groups.push(group)
-      }
-      // Total reps respects the rounds multiplier
-      groupMap.get(key).totalReps += (set.reps ?? 0) * (set.rounds ?? 1)
+  // Top-level exercises
+  for (const ex of exercises ?? []) {
+    if (!ex.exerciseName) continue
+    for (const set of ex.sets) addSet(ex.exerciseName, ex.weightType, ex.weightKg, set, 1)
+  }
+  // Complex-linked exercises: multiply each contribution by complex.rounds
+  for (const cx of complexes ?? []) {
+    const mult = cx.rounds ?? 1
+    for (const ex of cx.exercises ?? []) {
+      if (!ex.exerciseName) continue
+      for (const set of ex.sets) addSet(ex.exerciseName, ex.weightType, ex.weightKg, set, mult)
     }
   }
 

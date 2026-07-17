@@ -13,9 +13,9 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
     return weightType === 'single' ? `${reps}/${reps}` : `${reps}`
   }
 
-  function totalReps(sets) {
-    // Total respects the rounds multiplier on each set
-    return sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
+  function totalReps(sets, complexRounds = 1) {
+    // Total respects the per-set rounds multiplier AND the parent complex's rounds
+    return sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1) * (s.complex_rounds ?? complexRounds), 0)
   }
 
   // PB buckets keyed by (per-set effective type, per-set effective weight).
@@ -37,8 +37,11 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
         setsByBucket.get(key).sets.push(s)
       })
       for (const [key, group] of setsByBucket) {
-        // Session total = sum(reps * rounds); best single set = max(reps) (per-round, not multiplied)
-        const sessionTotal = group.sets.reduce((sum, s) => sum + (s.reps ?? 0) * (s.rounds ?? 1), 0)
+        // Session total = sum(reps * per-set rounds * complex rounds); best single set = max(reps) per-round
+        const sessionTotal = group.sets.reduce(
+          (sum, s) => sum + (s.reps ?? 0) * (s.rounds ?? 1) * (s.complex_rounds ?? 1),
+          0
+        )
         const sessionMax = Math.max(0, ...group.sets.map(s => s.reps ?? 0))
         const existing = pbBuckets.get(key) ?? {
           weight_kg: group.weight_kg,

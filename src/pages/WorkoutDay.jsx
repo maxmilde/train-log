@@ -11,12 +11,30 @@ import {
   upsertSet,
   deleteSet,
   deleteEmptySetsForDay,
+  upsertComplex,
+  deleteComplex,
   getExerciseNames,
 } from '../lib/db'
 import { toDateStr } from '../lib/utils'
 import DayLog from '../components/workout/DayLog'
 
 function normDay(day) {
+  const complexes = (day.complexes ?? []).map(normComplex)
+  // Attach exercises to their complexes; standalone go into top-level list
+  const complexMap = new Map(complexes.map(c => [c.id, c]))
+  const topLevelExercises = []
+  for (const ex of day.exercises ?? []) {
+    const nex = normExercise(ex)
+    if (ex.complex_id && complexMap.has(ex.complex_id)) {
+      complexMap.get(ex.complex_id).exercises.push(nex)
+    } else {
+      topLevelExercises.push(nex)
+    }
+  }
+  // Sort complex exercises by their display_order
+  for (const c of complexes) {
+    c.exercises.sort((a, b) => a.displayOrder - b.displayOrder)
+  }
   return {
     dayId:           day.id,
     date:            day.date,
@@ -24,7 +42,8 @@ function normDay(day) {
     durationMinutes: day.duration_minutes ?? null,
     notes:           day.notes ?? '',
     submitted:       day.submitted ?? false,
-    exercises: (day.exercises ?? []).map(normExercise),
+    exercises: topLevelExercises,
+    complexes,
   }
 }
 
@@ -35,17 +54,26 @@ function normExercise(ex) {
     weightKg:     ex.weight_kg ?? 24,
     weightType:   ex.weight_type ?? 'single',
     displayOrder: ex.display_order ?? 0,
+    complexId:    ex.complex_id ?? null,
     sets: (ex.exercise_sets ?? [])
       .sort((a, b) => a.set_number - b.set_number)
       .map(s => ({
         id:         s.id,
         setNumber:  s.set_number,
         reps:       s.reps ?? null,
-        // Per-set overrides; null = inherit exercise default
         weightKg:   s.weight_kg ?? null,
         weightType: s.weight_type ?? null,
         rounds:     s.rounds ?? 1,
       })),
+  }
+}
+
+function normComplex(c) {
+  return {
+    id:           c.id,
+    rounds:       c.rounds ?? 1,
+    displayOrder: c.display_order ?? 0,
+    exercises:    [],  // populated by normDay
   }
 }
 
@@ -72,7 +100,7 @@ export default function WorkoutDayPage() {
       setNames(names)
       setState(day
         ? normDay(day)
-        : { dayId: null, date, dayType: 'workout', durationMinutes: null, notes: '', submitted: false, exercises: [] }
+        : { dayId: null, date, dayType: 'workout', durationMinutes: null, notes: '', submitted: false, exercises: [], complexes: [] }
       )
       setLoading(false)
     }).catch(err => {
@@ -259,6 +287,179 @@ export default function WorkoutDayPage() {
     } catch (e) { console.error(e) }
   }, [])
 
+  // ── COMPLEX HANDLERS ─────────────────────────────────────────────────────────
+
+  // Add a new complex to the day
+  const handleAddComplex = useCallback(async () => {
+    try {
+      setSaving(true)
+      const currentState = state
+      const dayId = currentState.dayId ?? await ensureDay(currentState)
+      // display_order across the mixed list (top-level exercises + complexes)
+      const order = currentState.exercises.length + currentState.complexes.length
+      const cx = await upsertComplex(user.id, dayId, {
+        rounds: 1,
+        display_order: order,
+      })
+      setState(prev => ({
+        ...prev,
+        dayId,
+        complexes: [...prev.complexes, normComplex(cx)],
+      }))
+    } catch (e) { console.error('Add complex:', e) }
+    finally { setSaving(false) }
+  }, [user, state, ensureDay])
+
+  // Update a complex (usually just the rounds count)
+  const handleUpdateComplex = useCallback(async (complexId, patch) => {
+    setState(prev => ({
+      ...prev,
+      complexes: prev.complexes.map(c =>
+        c.id === complexId ? { ...c, ...patch } : c
+      ),
+    }))
+    try {
+      const cx = state.complexes.find(c => c.id === complexId)
+      if (!cx) return
+      const merged = { ...cx, ...patch }
+      await upsertComplex(user.id, state.dayId, {
+        id: complexId,
+        rounds: merged.rounds,
+        display_order: merged.displayOrder,
+      })
+    } catch (e) { console.error('Update complex:', e) }
+  }, [user, state])
+
+  const handleDeleteComplex = useCallback(async (complexId) => {
+    setState(prev => ({
+      ...prev,
+      complexes: prev.complexes.filter(c => c.id !== complexId),
+    }))
+    try {
+      await deleteComplex(complexId)
+    } catch (e) { console.error('Delete complex:', e) }
+  }, [])
+
+  // Add an exercise inside a specific complex — creates the exercise AND one implicit set
+  const handleAddExerciseToComplex = useCallback(async (complexId) => {
+    try {
+      setSaving(true)
+      const cx = state.complexes.find(c => c.id === complexId)
+      if (!cx) return
+      const dayId = state.dayId
+      const order = cx.exercises.length
+      const ex = await upsertExercise(user.id, dayId, {
+        exercise_name: '',
+        weight_kg: 24,
+        weight_type: 'single',
+        display_order: order,
+        complex_id: complexId,
+      })
+      // Create the one implicit set
+      const s = await upsertSet(user.id, ex.id, {
+        set_number: 1,
+        reps: null,
+        weight_kg: 24,
+        weight_type: 'single',
+        rounds: 1,
+      })
+      const nex = normExercise({ ...ex, exercise_sets: [s] })
+      setState(prev => ({
+        ...prev,
+        complexes: prev.complexes.map(c =>
+          c.id === complexId ? { ...c, exercises: [...c.exercises, nex] } : c
+        ),
+      }))
+      getExerciseNames(user.id).then(setNames)
+    } catch (e) { console.error('Add exercise to complex:', e) }
+    finally { setSaving(false) }
+  }, [user, state])
+
+  // Update an exercise inside a complex (name, weight, type, or its one set's reps/rounds)
+  const handleUpdateComplexExercise = useCallback(async (complexId, exerciseId, patch) => {
+    // Optimistic
+    setState(prev => ({
+      ...prev,
+      complexes: prev.complexes.map(c =>
+        c.id === complexId
+          ? {
+              ...c,
+              exercises: c.exercises.map(ex =>
+                ex.id === exerciseId ? { ...ex, ...patch } : ex
+              ),
+            }
+          : c
+      ),
+    }))
+    const dbFields = ['exerciseName', 'weightKg', 'weightType']
+    if (!dbFields.some(f => f in patch)) return
+    try {
+      const cx = state.complexes.find(c => c.id === complexId)
+      const ex = cx?.exercises.find(e => e.id === exerciseId)
+      if (!ex) return
+      const merged = { ...ex, ...patch }
+      await upsertExercise(user.id, state.dayId, {
+        id:            exerciseId,
+        exercise_name: merged.exerciseName,
+        weight_kg:     merged.weightKg,
+        weight_type:   merged.weightType,
+        display_order: merged.displayOrder,
+        complex_id:    complexId,
+      })
+      if ('exerciseName' in patch) {
+        getExerciseNames(user.id).then(setNames)
+      }
+    } catch (e) { console.error('Update complex exercise:', e) }
+  }, [user, state])
+
+  // Update the single set inside a complex-exercise (reps or weight/type)
+  const handleUpdateComplexSet = useCallback(async (complexId, exerciseId, patch) => {
+    setState(prev => ({
+      ...prev,
+      complexes: prev.complexes.map(c =>
+        c.id === complexId
+          ? {
+              ...c,
+              exercises: c.exercises.map(ex =>
+                ex.id === exerciseId
+                  ? { ...ex, sets: ex.sets.map((s, i) => i === 0 ? { ...s, ...patch } : s) }
+                  : ex
+              ),
+            }
+          : c
+      ),
+    }))
+    try {
+      const cx = state.complexes.find(c => c.id === complexId)
+      const ex = cx?.exercises.find(e => e.id === exerciseId)
+      const set = ex?.sets[0]
+      if (!set) return
+      const merged = { ...set, ...patch }
+      await upsertSet(user.id, exerciseId, {
+        id:          set.id,
+        set_number:  merged.setNumber ?? 1,
+        reps:        merged.reps,
+        weight_kg:   merged.weightKg ?? null,
+        weight_type: merged.weightType ?? null,
+        rounds:      merged.rounds ?? 1,
+      })
+    } catch (e) { console.error('Update complex set:', e) }
+  }, [user, state])
+
+  const handleDeleteComplexExercise = useCallback(async (complexId, exerciseId) => {
+    setState(prev => ({
+      ...prev,
+      complexes: prev.complexes.map(c =>
+        c.id === complexId
+          ? { ...c, exercises: c.exercises.filter(ex => ex.id !== exerciseId) }
+          : c
+      ),
+    }))
+    try {
+      await deleteExercise(exerciseId)
+    } catch (e) { console.error(e) }
+  }, [])
+
   const handleAddSet = useCallback(async (exerciseId) => {
     try {
       const ex = state.exercises.find(e => e.id === exerciseId)
@@ -371,6 +572,13 @@ export default function WorkoutDayPage() {
           ...ex,
           sets: ex.sets.filter(s => s.reps != null),
         })),
+        complexes: prev.complexes.map(c => ({
+          ...c,
+          exercises: c.exercises.map(ex => ({
+            ...ex,
+            sets: ex.sets.filter(s => s.reps != null),
+          })),
+        })),
       }))
     } catch (e) { console.error(e) }
     finally { setSaving(false) }
@@ -389,6 +597,7 @@ export default function WorkoutDayPage() {
         notes: '',
         submitted: false,
         exercises: [],
+        complexes: [],
       })
     } catch (e) { console.error(e) }
     finally { setSaving(false) }
@@ -458,6 +667,13 @@ export default function WorkoutDayPage() {
           onAddSet={handleAddSet}
           onUpdateSet={handleUpdateSet}
           onDeleteSet={handleDeleteSet}
+          onAddComplex={handleAddComplex}
+          onUpdateComplex={handleUpdateComplex}
+          onDeleteComplex={handleDeleteComplex}
+          onAddExerciseToComplex={handleAddExerciseToComplex}
+          onUpdateComplexExercise={handleUpdateComplexExercise}
+          onUpdateComplexSet={handleUpdateComplexSet}
+          onDeleteComplexExercise={handleDeleteComplexExercise}
           onSubmit={handleSubmit}
           onDeleteDay={handleDeleteDay}
           onDateChange={handleDateChange}
