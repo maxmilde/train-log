@@ -1,6 +1,8 @@
-import { useState, useRef } from 'react'
-import { Trash2, Plus, Minus, Layers } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Trash2, Plus, Minus, Layers, BookOpen, X } from 'lucide-react'
 import ExerciseAutocomplete from './ExerciseAutocomplete'
+import { useAuth } from '../../context/AuthContext'
+import { getComplexTemplates } from '../../lib/db'
 
 const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 
@@ -13,7 +15,12 @@ export default function ComplexRow({
   onUpdateExercise,
   onUpdateSet,
   onDeleteExercise,
+  onLoadTemplate,
 }) {
+  const { user } = useAuth()
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [templates, setTemplates] = useState(null)
+  const [loadingTemplates, setLoadingTemplates] = useState(false)
   const rounds = complex.rounds ?? 1
 
   function bumpRounds(delta) {
@@ -32,6 +39,26 @@ export default function ComplexRow({
       onDelete()
     }
   }
+
+  async function openTemplates() {
+    if (!user) return
+    setShowTemplates(true)
+    if (!templates) {
+      setLoadingTemplates(true)
+      try {
+        const list = await getComplexTemplates(user.id)
+        setTemplates(list)
+      } catch (e) { console.error('Load templates:', e) }
+      finally { setLoadingTemplates(false) }
+    }
+  }
+
+  function pickTemplate(t) {
+    setShowTemplates(false)
+    onLoadTemplate?.(t)
+  }
+
+  const isEmpty = complex.exercises.length === 0
 
   return (
     <div className="bg-gray-800 rounded-2xl p-4 space-y-3 border border-purple-900/40">
@@ -99,18 +126,108 @@ export default function ComplexRow({
         </div>
       )}
 
-      {/* Add exercise inside the complex */}
-      <button
-        type="button"
-        onClick={onAddExercise}
-        className="w-full py-2.5 rounded-xl border border-dashed border-gray-700
-                   text-gray-500 text-xs font-medium
-                   active:bg-gray-750 transition-colors
-                   flex items-center justify-center gap-2"
-      >
-        <Plus size={12} />
-        Add exercise
-      </button>
+      {/* Add exercise + (only when empty) Load previous complex */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onAddExercise}
+          className="flex-1 py-2.5 rounded-xl border border-dashed border-gray-700
+                     text-gray-500 text-xs font-medium
+                     active:bg-gray-750 transition-colors
+                     flex items-center justify-center gap-2"
+        >
+          <Plus size={12} />
+          Add exercise
+        </button>
+        {isEmpty && (
+          <button
+            type="button"
+            onClick={openTemplates}
+            className="flex-1 py-2.5 rounded-xl border border-dashed border-purple-800/50
+                       text-purple-400 text-xs font-medium
+                       active:bg-purple-950/30 transition-colors
+                       flex items-center justify-center gap-2"
+          >
+            <BookOpen size={12} />
+            Load previous
+          </button>
+        )}
+      </div>
+
+      {/* Template picker modal */}
+      {showTemplates && (
+        <TemplatePicker
+          templates={templates}
+          loading={loadingTemplates}
+          onPick={pickTemplate}
+          onClose={() => setShowTemplates(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function TemplatePicker({ templates, loading, onPick, onClose }) {
+  function fmtLabel(t) {
+    if (!t.exercises || t.exercises.length === 0) return 'Empty complex'
+    const summary = t.exercises.slice(0, 4).map(e => e.name).join(' → ')
+    return t.exercises.length > 4 ? summary + ' …' : summary
+  }
+  function fmtDetail(t) {
+    return t.exercises.map(e => {
+      const w = e.weight_type === 'bodyweight' || !e.weight_kg
+        ? 'BW'
+        : e.weight_type === 'double'
+          ? `2×${e.weight_kg}kg`
+          : `${e.weight_kg}kg`
+      return `${e.name} ${w} × ${e.reps}`
+    }).join(' · ')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+         style={{ background: 'rgba(0,0,0,0.6)' }}
+         onClick={onClose}>
+      <div className="bg-gray-900 rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col"
+           onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-200">Load a previous complex</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-gray-500 active:text-gray-300"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {loading && (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin h-5 w-5 rounded-full border-2 border-green-500 border-t-transparent" />
+            </div>
+          )}
+          {!loading && templates && templates.length === 0 && (
+            <p className="text-gray-500 text-sm text-center py-8 px-4">
+              You haven't submitted any complexes yet. Build and submit one, then it'll appear here.
+            </p>
+          )}
+          {!loading && templates && templates.map((t, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onPick(t)}
+              className="w-full text-left px-4 py-3 border-b border-gray-800 active:bg-gray-800"
+            >
+              <p className="text-sm text-gray-100 font-medium">{fmtLabel(t)}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                ×{t.rounds} rounds · last done {t.lastDate ?? '—'}
+              </p>
+              <p className="text-[10px] text-gray-600 mt-1 truncate">{fmtDetail(t)}</p>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

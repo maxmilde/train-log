@@ -151,6 +151,106 @@ export async function deleteComplex(complexId) {
   if (error) throw error
 }
 
+// Templates: distinct past complexes (by ordered exercise-name signature),
+// most-recent version returned. Used by the "Load previous complex" picker.
+export async function getComplexTemplates(userId) {
+  const { data, error } = await supabase
+    .from('workout_complexes')
+    .select(`
+      id, rounds, workout_day_id,
+      workout_days(date, submitted),
+      workout_exercises(id, exercise_name, weight_kg, weight_type, display_order, exercise_sets(reps, weight_kg, weight_type, rounds, set_number))
+    `)
+    .eq('user_id', userId)
+  if (error) throw error
+
+  // Build template objects (skip empty complexes and unsubmitted days)
+  const templates = []
+  for (const cx of data ?? []) {
+    if (!cx.workout_days?.submitted) continue
+    const exs = (cx.workout_exercises ?? [])
+      .slice()
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+      .map(ex => {
+        const s = (ex.exercise_sets ?? [])
+          .slice()
+          .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))[0]
+        return {
+          name: ex.exercise_name ?? '',
+          weight_kg: s?.weight_kg ?? ex.weight_kg ?? null,
+          weight_type: s?.weight_type ?? ex.weight_type ?? 'single',
+          reps: s?.reps ?? null,
+        }
+      })
+      .filter(e => e.name && e.reps != null)
+    if (exs.length === 0) continue
+    templates.push({
+      lastDate: cx.workout_days?.date ?? null,
+      rounds: cx.rounds ?? 1,
+      exercises: exs,
+      signature: exs.map(e => `${e.name}|${e.weight_type}|${e.weight_kg ?? 'bw'}|${e.reps}`).join('>'),
+    })
+  }
+
+  // Dedup by signature — keep the most recent per signature
+  const bySig = new Map()
+  for (const t of templates) {
+    const existing = bySig.get(t.signature)
+    if (!existing || (t.lastDate ?? '') > (existing.lastDate ?? '')) {
+      bySig.set(t.signature, t)
+    }
+  }
+  return [...bySig.values()].sort((a, b) => (b.lastDate ?? '').localeCompare(a.lastDate ?? ''))
+}
+
+// Populate an existing (empty) complex with a template's exercises.
+// Creates a workout_exercises row + one implicit set per template exercise.
+export async function applyComplexTemplate(userId, complexId, workoutDayId, template) {
+  const { rounds, exercises } = template
+  // Update the complex's rounds to match the template
+  const { error: cxErr } = await supabase
+    .from('workout_complexes')
+    .update({ rounds: rounds ?? 1 })
+    .eq('id', complexId)
+  if (cxErr) throw cxErr
+
+  // Insert each exercise + one implicit set
+  const created = []
+  for (let i = 0; i < exercises.length; i++) {
+    const tex = exercises[i]
+    const { data: newEx, error: exErr } = await supabase
+      .from('workout_exercises')
+      .insert({
+        user_id: userId,
+        workout_day_id: workoutDayId,
+        exercise_name: tex.name,
+        weight_kg: tex.weight_type === 'bodyweight' ? null : tex.weight_kg,
+        weight_type: tex.weight_type,
+        display_order: i,
+        complex_id: complexId,
+      })
+      .select()
+      .single()
+    if (exErr) throw exErr
+    const { data: newSet, error: setErr } = await supabase
+      .from('exercise_sets')
+      .insert({
+        user_id: userId,
+        workout_exercise_id: newEx.id,
+        set_number: 1,
+        reps: tex.reps,
+        weight_kg: tex.weight_type === 'bodyweight' ? null : tex.weight_kg,
+        weight_type: tex.weight_type,
+        rounds: 1,
+      })
+      .select()
+      .single()
+    if (setErr) throw setErr
+    created.push({ exercise: newEx, set: newSet })
+  }
+  return { rounds: rounds ?? 1, exercises: created }
+}
+
 // ── EXERCISE SETS ───────────────────────────────────────────────────────────────
 
 export async function upsertSet(userId, workoutExerciseId, set) {
@@ -339,18 +439,31 @@ export async function createWorkoutFromSuggestions(userId, targetDate, suggestio
   return targetDay
 }
 
-// Copy a previous workout's exercise structure (names, weight config) to a target date.
-// Does NOT copy logged reps/sets — fresh sets only. Appends to existing exercises if the target day already has any.
+// Copy a previous workout's structure (top-level exercises + complexes with their inner
+// exercises) to a target date. Does NOT copy logged reps/sets. Appends if the target
+// day already has content.
 export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
-  // Read source exercises
+  // Read source exercises (both top-level and complex-linked)
   const { data: sourceExs, error: srcErr } = await supabase
     .from('workout_exercises')
-    .select('exercise_name, weight_kg, weight_type, display_order')
+    .select('id, exercise_name, weight_kg, weight_type, display_order, complex_id, exercise_sets(reps, weight_kg, weight_type, rounds, set_number)')
     .eq('user_id', userId)
     .eq('workout_day_id', sourceDayId)
     .order('display_order', { ascending: true })
   if (srcErr) throw srcErr
-  if (!sourceExs || sourceExs.length === 0) throw new Error('Source workout has no exercises')
+
+  // Read source complexes
+  const { data: sourceCxs, error: cxErr } = await supabase
+    .from('workout_complexes')
+    .select('id, rounds, display_order')
+    .eq('user_id', userId)
+    .eq('workout_day_id', sourceDayId)
+    .order('display_order', { ascending: true })
+  if (cxErr) throw cxErr
+
+  if ((!sourceExs || sourceExs.length === 0) && (!sourceCxs || sourceCxs.length === 0)) {
+    throw new Error('Source workout has nothing to copy')
+  }
 
   // Ensure target day exists (default day_type=workout)
   const { data: existingDay, error: dayErr } = await supabase
@@ -372,24 +485,87 @@ export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
     targetDay = data
   }
 
-  // Find current max display_order at target so we append, not overwrite
-  const { data: existingExs } = await supabase
-    .from('workout_exercises')
-    .select('display_order')
-    .eq('user_id', userId)
-    .eq('workout_day_id', targetDay.id)
-  const baseOrder = (existingExs ?? []).reduce((m, e) => Math.max(m, e.display_order ?? 0), -1) + 1
+  // Compute base display order across BOTH tables so appended content follows any existing rows
+  const [{ data: existingExs }, { data: existingCxs }] = await Promise.all([
+    supabase.from('workout_exercises').select('display_order').eq('user_id', userId).eq('workout_day_id', targetDay.id),
+    supabase.from('workout_complexes').select('display_order').eq('user_id', userId).eq('workout_day_id', targetDay.id),
+  ])
+  const existingMax = Math.max(
+    (existingExs ?? []).reduce((m, e) => Math.max(m, e.display_order ?? 0), -1),
+    (existingCxs ?? []).reduce((m, c) => Math.max(m, c.display_order ?? 0), -1),
+  )
+  const baseOrder = existingMax + 1
 
-  const rows = sourceExs.map((ex, i) => ({
-    user_id: userId,
-    workout_day_id: targetDay.id,
-    exercise_name: ex.exercise_name,
-    weight_kg: ex.weight_kg,
-    weight_type: ex.weight_type,
-    display_order: baseOrder + i,
-  }))
-  const { error: insErr } = await supabase.from('workout_exercises').insert(rows)
-  if (insErr) throw insErr
+  // 1) Copy top-level exercises (complex_id IS NULL)
+  const topLevel = (sourceExs ?? []).filter(e => !e.complex_id)
+  if (topLevel.length > 0) {
+    const rows = topLevel.map((ex, i) => ({
+      user_id: userId,
+      workout_day_id: targetDay.id,
+      exercise_name: ex.exercise_name,
+      weight_kg: ex.weight_kg,
+      weight_type: ex.weight_type,
+      display_order: baseOrder + i,
+    }))
+    const { error: insErr } = await supabase.from('workout_exercises').insert(rows)
+    if (insErr) throw insErr
+  }
+
+  // 2) Copy each complex: create the complex row, then insert its inner exercises + one implicit set per exercise
+  const complexOffset = baseOrder + topLevel.length
+  for (let cxIdx = 0; cxIdx < (sourceCxs ?? []).length; cxIdx++) {
+    const srcCx = sourceCxs[cxIdx]
+    const { data: newCx, error: newCxErr } = await supabase
+      .from('workout_complexes')
+      .insert({
+        user_id: userId,
+        workout_day_id: targetDay.id,
+        rounds: srcCx.rounds ?? 1,
+        display_order: complexOffset + cxIdx,
+      })
+      .select()
+      .single()
+    if (newCxErr) throw newCxErr
+
+    // Exercises that belonged to this source complex
+    const cxExercises = (sourceExs ?? []).filter(e => e.complex_id === srcCx.id)
+    for (let exIdx = 0; exIdx < cxExercises.length; exIdx++) {
+      const srcEx = cxExercises[exIdx]
+      // Insert the exercise
+      const { data: newEx, error: exInsErr } = await supabase
+        .from('workout_exercises')
+        .insert({
+          user_id: userId,
+          workout_day_id: targetDay.id,
+          exercise_name: srcEx.exercise_name,
+          weight_kg: srcEx.weight_kg,
+          weight_type: srcEx.weight_type,
+          display_order: exIdx,
+          complex_id: newCx.id,
+        })
+        .select()
+        .single()
+      if (exInsErr) throw exInsErr
+
+      // Copy the ONE implicit set structure (name/weight only — NOT reps).
+      // Prefer set_number=1 from the source; fall back to sensible defaults.
+      const templateSet = (srcEx.exercise_sets ?? [])
+        .slice()
+        .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))[0]
+      const { error: setInsErr } = await supabase
+        .from('exercise_sets')
+        .insert({
+          user_id: userId,
+          workout_exercise_id: newEx.id,
+          set_number: 1,
+          reps: null,
+          weight_kg: templateSet?.weight_kg ?? srcEx.weight_kg,
+          weight_type: templateSet?.weight_type ?? srcEx.weight_type,
+          rounds: 1,
+        })
+      if (setInsErr) throw setInsErr
+    }
+  }
 
   return targetDay
 }

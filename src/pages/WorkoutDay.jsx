@@ -13,6 +13,7 @@ import {
   deleteEmptySetsForDay,
   upsertComplex,
   deleteComplex,
+  applyComplexTemplate,
   getExerciseNames,
 } from '../lib/db'
 import { toDateStr } from '../lib/utils'
@@ -188,6 +189,13 @@ export default function WorkoutDayPage() {
     }
   }, [persistNotes])
 
+  // Shared: what displayOrder should a new top-level item (exercise or complex) get?
+  const nextItemOrder = (st) => {
+    const mx = (st.exercises ?? []).reduce((m, e) => Math.max(m, e.displayOrder ?? 0), -1)
+    const mc = (st.complexes ?? []).reduce((m, c) => Math.max(m, c.displayOrder ?? 0), -1)
+    return Math.max(mx, mc) + 1
+  }
+
   const handleAddExercise = useCallback(async () => {
     try {
       setSaving(true)
@@ -198,7 +206,7 @@ export default function WorkoutDayPage() {
         exercise_name: '',
         weight_kg: 24,
         weight_type: 'single',
-        display_order: currentState.exercises.length,
+        display_order: nextItemOrder(currentState),
       })
 
       setState(prev => ({
@@ -242,39 +250,56 @@ export default function WorkoutDayPage() {
     } catch (e) { console.error(e) }
   }, [user, state])
 
-  const handleMoveExercise = useCallback(async (fromIndex, toIndex) => {
-    setState(prev => {
-      const newExercises = [...prev.exercises]
-      const [moved] = newExercises.splice(fromIndex, 1)
-      newExercises.splice(toIndex, 0, moved)
-      return {
-        ...prev,
-        exercises: newExercises.map((ex, i) => ({ ...ex, displayOrder: i })),
-      }
-    })
+  // Swap positions of two items in the mixed exercises+complexes list.
+  const handleMoveItem = useCallback(async (fromIndex, toIndex) => {
+    // Build the ordered mixed list (same logic DayLog uses)
+    const items = [
+      ...state.exercises.map(ex => ({ kind: 'exercise', item: ex, sortKey: ex.displayOrder ?? 0 })),
+      ...state.complexes.map(cx => ({ kind: 'complex',  item: cx, sortKey: cx.displayOrder ?? 0 })),
+    ].sort((a, b) => a.sortKey - b.sortKey)
 
+    const a = items[fromIndex]
+    const b = items[toIndex]
+    if (!a || !b) return
+    const orderA = a.sortKey
+    const orderB = b.sortKey
+
+    // Optimistic swap in state
+    setState(prev => ({
+      ...prev,
+      exercises: prev.exercises.map(ex => {
+        if (a.kind === 'exercise' && ex.id === a.item.id) return { ...ex, displayOrder: orderB }
+        if (b.kind === 'exercise' && ex.id === b.item.id) return { ...ex, displayOrder: orderA }
+        return ex
+      }),
+      complexes: prev.complexes.map(cx => {
+        if (a.kind === 'complex' && cx.id === a.item.id) return { ...cx, displayOrder: orderB }
+        if (b.kind === 'complex' && cx.id === b.item.id) return { ...cx, displayOrder: orderA }
+        return cx
+      }),
+    }))
+
+    // Persist to DB
     try {
-      const exercises = state.exercises
-      const exA = exercises[fromIndex]
-      const exB = exercises[toIndex]
-      if (!exA || !exB) return
-      await Promise.all([
-        upsertExercise(user.id, state.dayId, {
-          id: exA.id,
-          exercise_name: exA.exerciseName,
-          weight_kg: exA.weightKg,
-          weight_type: exA.weightType,
-          display_order: toIndex,
-        }),
-        upsertExercise(user.id, state.dayId, {
-          id: exB.id,
-          exercise_name: exB.exerciseName,
-          weight_kg: exB.weightKg,
-          weight_type: exB.weightType,
-          display_order: fromIndex,
-        }),
-      ])
-    } catch (e) { console.error('Failed to save exercise order:', e) }
+      const write = async (side, newOrder) => {
+        if (side.kind === 'exercise') {
+          await upsertExercise(user.id, state.dayId, {
+            id:            side.item.id,
+            exercise_name: side.item.exerciseName,
+            weight_kg:     side.item.weightKg,
+            weight_type:   side.item.weightType,
+            display_order: newOrder,
+          })
+        } else {
+          await upsertComplex(user.id, state.dayId, {
+            id:            side.item.id,
+            rounds:        side.item.rounds,
+            display_order: newOrder,
+          })
+        }
+      }
+      await Promise.all([write(a, orderB), write(b, orderA)])
+    } catch (e) { console.error('Failed to save item order:', e) }
   }, [user, state])
 
   const handleDeleteExercise = useCallback(async (exerciseId) => {
@@ -295,11 +320,9 @@ export default function WorkoutDayPage() {
       setSaving(true)
       const currentState = state
       const dayId = currentState.dayId ?? await ensureDay(currentState)
-      // display_order across the mixed list (top-level exercises + complexes)
-      const order = currentState.exercises.length + currentState.complexes.length
       const cx = await upsertComplex(user.id, dayId, {
         rounds: 1,
-        display_order: order,
+        display_order: nextItemOrder(currentState),
       })
       setState(prev => ({
         ...prev,
@@ -446,6 +469,44 @@ export default function WorkoutDayPage() {
     } catch (e) { console.error('Update complex set:', e) }
   }, [user, state])
 
+  // Populate an existing (empty) complex from a template
+  const handleLoadComplexTemplate = useCallback(async (complexId, template) => {
+    try {
+      setSaving(true)
+      const result = await applyComplexTemplate(user.id, complexId, state.dayId, template)
+      // Refresh state — replace the target complex's contents
+      setState(prev => ({
+        ...prev,
+        complexes: prev.complexes.map(c =>
+          c.id === complexId
+            ? {
+                ...c,
+                rounds: result.rounds,
+                exercises: result.exercises.map(({ exercise, set }) => ({
+                  id:           exercise.id,
+                  exerciseName: exercise.exercise_name ?? '',
+                  weightKg:     exercise.weight_kg ?? 24,
+                  weightType:   exercise.weight_type ?? 'single',
+                  displayOrder: exercise.display_order ?? 0,
+                  complexId:    complexId,
+                  sets: [{
+                    id:         set.id,
+                    setNumber:  set.set_number,
+                    reps:       set.reps ?? null,
+                    weightKg:   set.weight_kg ?? null,
+                    weightType: set.weight_type ?? null,
+                    rounds:     set.rounds ?? 1,
+                  }],
+                })),
+              }
+            : c
+        ),
+      }))
+      getExerciseNames(user.id).then(setNames)
+    } catch (e) { console.error('Load template:', e) }
+    finally { setSaving(false) }
+  }, [user, state])
+
   const handleDeleteComplexExercise = useCallback(async (complexId, exerciseId) => {
     setState(prev => ({
       ...prev,
@@ -478,14 +539,13 @@ export default function WorkoutDayPage() {
         : lastSet
           ? (lastSet.weightType ?? ex.weightType ?? 'single')
           : 'single'
-      // Rounds default to last set's rounds, else 1
-      const lastSetRounds = lastSet ? (lastSet.rounds ?? 1) : 1
+      // Rounds always start at 1 for a fresh set — user tracks rounds live
       const newSet = await upsertSet(user.id, exerciseId, {
         set_number: setNumber,
         reps: null,
         weight_kg: defaultWeight,
         weight_type: defaultType,
-        rounds: lastSetRounds,
+        rounds: 1,
       })
       setState(prev => ({
         ...prev,
@@ -497,7 +557,7 @@ export default function WorkoutDayPage() {
                 reps: null,
                 weightKg: newSet.weight_kg ?? defaultWeight,
                 weightType: newSet.weight_type ?? defaultType,
-                rounds: newSet.rounds ?? lastSetRounds,
+                rounds: newSet.rounds ?? 1,
               }] }
             : e
         ),
@@ -663,7 +723,7 @@ export default function WorkoutDayPage() {
           onAddExercise={handleAddExercise}
           onUpdateExercise={handleUpdateExercise}
           onDeleteExercise={handleDeleteExercise}
-          onMoveExercise={handleMoveExercise}
+          onMoveItem={handleMoveItem}
           onAddSet={handleAddSet}
           onUpdateSet={handleUpdateSet}
           onDeleteSet={handleDeleteSet}
@@ -674,6 +734,7 @@ export default function WorkoutDayPage() {
           onUpdateComplexExercise={handleUpdateComplexExercise}
           onUpdateComplexSet={handleUpdateComplexSet}
           onDeleteComplexExercise={handleDeleteComplexExercise}
+          onLoadComplexTemplate={handleLoadComplexTemplate}
           onSubmit={handleSubmit}
           onDeleteDay={handleDeleteDay}
           onDateChange={handleDateChange}

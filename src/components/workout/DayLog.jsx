@@ -27,10 +27,11 @@ export default function DayLog({
   onUpdateComplexExercise,
   onUpdateComplexSet,
   onDeleteComplexExercise,
+  onLoadComplexTemplate,
   onSubmit,
   onDeleteDay,
   onDateChange,
-  onMoveExercise,
+  onMoveItem,
 }) {
   const { date, dayType, durationMinutes, notes, exercises, complexes = [], submitted } = state
 
@@ -115,38 +116,40 @@ export default function DayLog({
       {canLogExercises && (
         <div className="space-y-3">
           {orderedItems.map(({ kind, item }, index) => {
+            const reorder = orderedItems.length > 1 ? (
+              <div className="flex flex-col gap-0.5 pt-2 flex-shrink-0">
+                <button
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => onMoveItem(index, index - 1)}
+                  className={`p-1 rounded-lg flex items-center justify-center transition-colors
+                    ${index === 0
+                      ? 'text-gray-700 cursor-default'
+                      : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
+                  aria-label="Move up"
+                >
+                  <ChevronUp size={18} />
+                </button>
+                <button
+                  type="button"
+                  disabled={index === orderedItems.length - 1}
+                  onClick={() => onMoveItem(index, index + 1)}
+                  className={`p-1 rounded-lg flex items-center justify-center transition-colors
+                    ${index === orderedItems.length - 1
+                      ? 'text-gray-700 cursor-default'
+                      : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
+                  aria-label="Move down"
+                >
+                  <ChevronDown size={18} />
+                </button>
+              </div>
+            ) : null
+
             if (kind === 'exercise') {
               const ex = item
               return (
-                <div key={ex.id} className="flex gap-1 items-start">
-                  {orderedItems.length > 1 && (
-                    <div className="flex flex-col gap-0.5 pt-2 flex-shrink-0">
-                      <button
-                        type="button"
-                        disabled={index === 0}
-                        onClick={() => onMoveExercise(index, index - 1)}
-                        className={`p-1 rounded-lg flex items-center justify-center transition-colors
-                          ${index === 0
-                            ? 'text-gray-700 cursor-default'
-                            : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
-                        aria-label="Move exercise up"
-                      >
-                        <ChevronUp size={18} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={index === orderedItems.length - 1}
-                        onClick={() => onMoveExercise(index, index + 1)}
-                        className={`p-1 rounded-lg flex items-center justify-center transition-colors
-                          ${index === orderedItems.length - 1
-                            ? 'text-gray-700 cursor-default'
-                            : 'text-gray-400 active:bg-gray-700 hover:text-gray-200'}`}
-                        aria-label="Move exercise down"
-                      >
-                        <ChevronDown size={18} />
-                      </button>
-                    </div>
-                  )}
+                <div key={`ex-${ex.id}`} className="flex gap-1 items-start">
+                  {reorder}
                   <div className="flex-1 min-w-0">
                     <ExerciseRow
                       exercise={ex}
@@ -161,20 +164,23 @@ export default function DayLog({
                 </div>
               )
             }
-            // kind === 'complex'
             const cx = item
             return (
-              <div key={cx.id} className="flex-1 min-w-0">
-                <ComplexRow
-                  complex={cx}
-                  exerciseNames={exerciseNames}
-                  onUpdate={patch => onUpdateComplex(cx.id, patch)}
-                  onDelete={() => onDeleteComplex(cx.id)}
-                  onAddExercise={() => onAddExerciseToComplex(cx.id)}
-                  onUpdateExercise={(exId, patch) => onUpdateComplexExercise(cx.id, exId, patch)}
-                  onUpdateSet={(exId, patch) => onUpdateComplexSet(cx.id, exId, patch)}
-                  onDeleteExercise={exId => onDeleteComplexExercise(cx.id, exId)}
-                />
+              <div key={`cx-${cx.id}`} className="flex gap-1 items-start">
+                {reorder}
+                <div className="flex-1 min-w-0">
+                  <ComplexRow
+                    complex={cx}
+                    exerciseNames={exerciseNames}
+                    onUpdate={patch => onUpdateComplex(cx.id, patch)}
+                    onDelete={() => onDeleteComplex(cx.id)}
+                    onAddExercise={() => onAddExerciseToComplex(cx.id)}
+                    onUpdateExercise={(exId, patch) => onUpdateComplexExercise(cx.id, exId, patch)}
+                    onUpdateSet={(exId, patch) => onUpdateComplexSet(cx.id, exId, patch)}
+                    onDeleteExercise={exId => onDeleteComplexExercise(cx.id, exId)}
+                    onLoadTemplate={template => onLoadComplexTemplate(cx.id, template)}
+                  />
+                </div>
               </div>
             )
           })}
