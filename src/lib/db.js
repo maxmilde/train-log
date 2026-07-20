@@ -1,4 +1,8 @@
 import { supabase } from './supabase'
+import {
+  getPeriodStart, getPeriodEnd, getPeriodKey, shiftPeriod,
+  formatPeriodLabel, formatPeriodShort, toDateStr,
+} from './utils'
 
 // ── USER SETTINGS ──────────────────────────────────────────────────────────────
 
@@ -149,6 +153,227 @@ export async function deleteComplex(complexId) {
     .delete()
     .eq('id', complexId)
   if (error) throw error
+}
+
+// Volume analytics — returns everything the Volume tab needs for a granularity + reference date.
+// Fetches ALL submitted sets ever, then aggregates client-side (fast enough for personal-use DBs).
+export async function getVolumeAnalytics(userId, granularity, referenceDate) {
+  const { data, error } = await supabase
+    .from('workout_exercises')
+    .select(`
+      exercise_name, weight_kg, weight_type, complex_id,
+      workout_days!inner(date, submitted),
+      exercise_sets(reps, weight_kg, weight_type, rounds),
+      workout_complexes(rounds)
+    `)
+    .eq('user_id', userId)
+    .eq('workout_days.submitted', true)
+  if (error) throw error
+
+  // Flatten every set into (name, type, weight, date, effective_reps, load_kg_reps).
+  const records = []
+  for (const ex of data ?? []) {
+    if (!ex.exercise_name) continue
+    const day = ex.workout_days
+    if (!day?.submitted) continue
+    const complexRounds = ex.workout_complexes?.rounds ?? 1
+    for (const set of ex.exercise_sets ?? []) {
+      if (set.reps == null) continue
+      const effType = set.weight_type ?? ex.weight_type ?? 'single'
+      const isBW = effType === 'bodyweight' || (ex.weight_type === 'bodyweight' && set.weight_kg == null)
+      const effKg = isBW ? null : (set.weight_kg ?? ex.weight_kg)
+      const effReps = (set.reps ?? 0) * (set.rounds ?? 1) * complexRounds
+      const load = isBW ? 0 : effReps * effKg * (effType === 'double' ? 2 : 1)
+      records.push({
+        name: ex.exercise_name,
+        type: isBW ? 'bodyweight' : effType,
+        weight: isBW ? null : effKg,
+        date: day.date,
+        reps: effReps,
+        load,
+        isBW,
+      })
+    }
+  }
+
+  // Group by bucket (name, type, weight) → per-period + per-day accumulators
+  const buckets = new Map()
+  for (const r of records) {
+    const bkey = `${r.name}|${r.type}|${r.weight ?? 'bw'}`
+    if (!buckets.has(bkey)) {
+      buckets.set(bkey, {
+        name: r.name, type: r.type, weight: r.weight, isBW: r.isBW,
+        periods: new Map(),  // periodKey -> { reps, load, dates:Set, periodDate }
+        days:    new Map(),  // dateStr  -> { reps, load }
+      })
+    }
+    const bucket = buckets.get(bkey)
+    const pkey = getPeriodKey(granularity, r.date)
+    if (!bucket.periods.has(pkey)) {
+      bucket.periods.set(pkey, { reps: 0, load: 0, dates: new Set(), periodDate: getPeriodStart(granularity, r.date) })
+    }
+    const p = bucket.periods.get(pkey)
+    p.reps += r.reps
+    p.load += r.load
+    p.dates.add(r.date)
+    if (!bucket.days.has(r.date)) bucket.days.set(r.date, { reps: 0, load: 0 })
+    const dEntry = bucket.days.get(r.date)
+    dEntry.reps += r.reps
+    dEntry.load += r.load
+  }
+
+  const currentKey = getPeriodKey(granularity, referenceDate)
+  const currentStart = getPeriodStart(granularity, referenceDate)
+  const currentEnd   = getPeriodEnd(granularity, referenceDate)
+  const currentStartStr = toDateStr(currentStart)
+  const currentEndStr   = toDateStr(currentEnd)
+
+  // Build per-bucket + per-exercise views for THIS period
+  const exerciseMap = new Map()
+  for (const bucket of buckets.values()) {
+    const current = bucket.periods.get(currentKey)
+    if (!current || current.reps === 0) continue  // skip buckets with no activity in current period
+
+    // Best period ever for this bucket (max reps for BW, max load for weighted)
+    let bestPeriodEver = { key: null, reps: 0, load: 0, date: null }
+    for (const [pkey, p] of bucket.periods) {
+      const metric = bucket.isBW ? p.reps : p.load
+      const bestMetric = bucket.isBW ? bestPeriodEver.reps : bestPeriodEver.load
+      if (metric > bestMetric) {
+        bestPeriodEver = { key: pkey, reps: p.reps, load: p.load, date: p.periodDate }
+      }
+    }
+
+    // Best day within the current period for this bucket
+    let bestDayInPeriod = { date: null, reps: 0 }
+    for (const [date, dayData] of bucket.days) {
+      if (date >= currentStartStr && date <= currentEndStr) {
+        if (dayData.reps > bestDayInPeriod.reps) {
+          bestDayInPeriod = { date, reps: dayData.reps }
+        }
+      }
+    }
+
+    // Sparkline data — last 8 periods (including current, may include zero-reps periods)
+    const sparkline = []
+    for (let i = 7; i >= 0; i--) {
+      const dt = shiftPeriod(granularity, referenceDate, -i)
+      const key = getPeriodKey(granularity, dt)
+      const p = bucket.periods.get(key)
+      sparkline.push({
+        key,
+        label: formatPeriodShort(granularity, dt),
+        reps: p?.reps ?? 0,
+        load: p?.load ?? 0,
+        isCurrent: i === 0,
+      })
+    }
+
+    const bucketResult = {
+      name: bucket.name,
+      type: bucket.type,
+      weight: bucket.weight,
+      isBW: bucket.isBW,
+      currentReps: current.reps,
+      currentLoad: current.load,
+      currentSessions: current.dates.size,
+      bestPeriodEver, // { key, reps, load, date }
+      bestDayInPeriod,
+      isNewPB: (bucket.isBW ? current.reps : current.load) >= (bucket.isBW ? bestPeriodEver.reps : bestPeriodEver.load) && current.reps > 0,
+      sparkline,
+    }
+
+    if (!exerciseMap.has(bucket.name)) {
+      exerciseMap.set(bucket.name, {
+        name: bucket.name,
+        totalReps: 0,
+        totalLoad: 0,
+        allBW: true,   // becomes false when any bucket is weighted
+        heaviest: null, // { weight_type, weight_kg, reps }
+        buckets: [],
+      })
+    }
+    const exEntry = exerciseMap.get(bucket.name)
+    exEntry.totalReps += bucketResult.currentReps
+    exEntry.totalLoad += bucketResult.currentLoad
+    if (!bucket.isBW) {
+      exEntry.allBW = false
+      // Track heaviest weighted bucket with activity
+      if (!exEntry.heaviest || (bucket.weight ?? 0) > (exEntry.heaviest.weight_kg ?? 0)) {
+        exEntry.heaviest = { weight_type: bucket.type, weight_kg: bucket.weight, reps: bucketResult.currentReps }
+      }
+    }
+    exEntry.buckets.push(bucketResult)
+  }
+
+  // Sort each exercise's buckets by weight ascending (BW first, then light → heavy)
+  for (const ex of exerciseMap.values()) {
+    ex.buckets.sort((a, b) => {
+      if (a.isBW && !b.isBW) return -1
+      if (!a.isBW && b.isBW) return 1
+      // Both weighted: sort by (type single before double), then by weight
+      if (a.type !== b.type) return a.type === 'single' ? -1 : 1
+      return (a.weight ?? 0) - (b.weight ?? 0)
+    })
+  }
+
+  // Overall period totals + best-ever period (across all exercises)
+  const periodTotals = new Map()
+  for (const bucket of buckets.values()) {
+    for (const [pkey, p] of bucket.periods) {
+      if (!periodTotals.has(pkey)) {
+        periodTotals.set(pkey, { reps: 0, load: 0, dates: new Set(), periodDate: p.periodDate })
+      }
+      const t = periodTotals.get(pkey)
+      t.reps += p.reps
+      t.load += p.load
+      for (const d of p.dates) t.dates.add(d)
+    }
+  }
+  const currentTotal = periodTotals.get(currentKey) ?? { reps: 0, load: 0, dates: new Set() }
+  let bestPeriodTotalEver = { key: null, reps: 0, load: 0, date: null }
+  for (const [pkey, t] of periodTotals) {
+    if (t.load > bestPeriodTotalEver.load) {
+      bestPeriodTotalEver = { key: pkey, reps: t.reps, load: t.load, date: t.periodDate }
+    }
+  }
+
+  // Top chart — last 12 periods total load + reps
+  const chart = []
+  for (let i = 11; i >= 0; i--) {
+    const dt = shiftPeriod(granularity, referenceDate, -i)
+    const key = getPeriodKey(granularity, dt)
+    const t = periodTotals.get(key)
+    chart.push({
+      key,
+      label: formatPeriodShort(granularity, dt),
+      reps: t?.reps ?? 0,
+      load: t?.load ?? 0,
+      sessions: t?.dates?.size ?? 0,
+      isCurrent: i === 0,
+    })
+  }
+
+  // Sort exercises: weighted (by total load desc) first, then BW-only (by total reps desc)
+  const exercises = [...exerciseMap.values()].sort((a, b) => {
+    if (a.allBW !== b.allBW) return a.allBW ? 1 : -1
+    if (a.allBW) return b.totalReps - a.totalReps
+    return b.totalLoad - a.totalLoad
+  })
+
+  return {
+    granularity,
+    referenceDate: toDateStr(new Date(referenceDate)),
+    currentLabel: formatPeriodLabel(granularity, referenceDate),
+    totals: {
+      reps: currentTotal.reps,
+      load: currentTotal.load,
+      sessions: currentTotal.dates?.size ?? 0,
+    },
+    bestEver: bestPeriodTotalEver,
+    chart,
+    exercises,
+  }
 }
 
 // Templates: distinct past complexes (by ordered exercise-name signature),

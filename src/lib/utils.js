@@ -7,6 +7,9 @@ import {
   endOfWeek,
   startOfMonth,
   endOfMonth,
+  addDays,
+  addWeeks,
+  addMonths,
 } from 'date-fns'
 
 export function toDateStr(date) {
@@ -116,6 +119,70 @@ export function calcGoalStats(days, weeklyGoal, now = new Date()) {
 export function pct(done, goal) {
   if (!goal) return 0
   return Math.min(100, Math.round((done / goal) * 100))
+}
+
+// ── PERIOD HELPERS (Day / Week / Month) ────────────────────────────────────────
+// Week starts Monday. Used by Volume analytics.
+
+export function getPeriodStart(granularity, refDate) {
+  const d = new Date(refDate)
+  if (granularity === 'day') {
+    d.setHours(0, 0, 0, 0)
+    return d
+  }
+  if (granularity === 'week') {
+    return startOfWeek(d, { weekStartsOn: 1 })
+  }
+  return startOfMonth(d)
+}
+
+export function getPeriodEnd(granularity, refDate) {
+  const d = new Date(refDate)
+  if (granularity === 'day') {
+    d.setHours(23, 59, 59, 999)
+    return d
+  }
+  if (granularity === 'week') {
+    return endOfWeek(d, { weekStartsOn: 1 })
+  }
+  return endOfMonth(d)
+}
+
+// Stable key per period for grouping. Same date in same period returns same key.
+export function getPeriodKey(granularity, date) {
+  const d = new Date(date)
+  if (granularity === 'day') return toDateStr(d)
+  if (granularity === 'week') return toDateStr(startOfWeek(d, { weekStartsOn: 1 }))
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+export function shiftPeriod(granularity, refDate, delta) {
+  if (granularity === 'day')   return addDays(refDate, delta)
+  if (granularity === 'week')  return addWeeks(refDate, delta)
+  return addMonths(refDate, delta)
+}
+
+export function formatPeriodLabel(granularity, refDate) {
+  const start = getPeriodStart(granularity, refDate)
+  const end   = getPeriodEnd(granularity, refDate)
+  if (granularity === 'day') {
+    return format(start, 'EEE, MMM d, yyyy')
+  }
+  if (granularity === 'week') {
+    if (start.getMonth() === end.getMonth()) {
+      return `${format(start, 'MMM d')} – ${format(end, 'd, yyyy')}`
+    }
+    return `${format(start, 'MMM d')} – ${format(end, 'MMM d, yyyy')}`
+  }
+  return format(start, 'MMMM yyyy')
+}
+
+// Short label for chart axes — e.g. 'Nov 4', 'W44', 'Nov'
+export function formatPeriodShort(granularity, refDate) {
+  const start = getPeriodStart(granularity, refDate)
+  if (granularity === 'day')   return format(start, 'MMM d')
+  if (granularity === 'week')  return format(start, 'MMM d')
+  return format(start, 'MMM')
 }
 
 export function formatTime(totalSeconds) {
