@@ -3,7 +3,7 @@ import { Bar } from 'react-chartjs-2'
 import { ChevronLeft, ChevronRight, Trophy, TrendingUp, TrendingDown, BarChart2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getVolumeAnalytics } from '../../lib/db'
-import { shiftPeriod, formatPeriodShort } from '../../lib/utils'
+import { shiftPeriod, formatPeriodShort, getPeriodKey } from '../../lib/utils'
 
 const GRANULARITIES = [
   { id: 'day',   label: 'Day' },
@@ -59,11 +59,12 @@ export default function VolumeAnalytics() {
   const navigate = (delta) => setRefDate(shiftPeriod(granularity, refDate, delta))
   const goToNow  = () => setRefDate(new Date())
 
+  // "Now" = the reference period matches today's period at the current granularity.
   const isNow = useMemo(() => {
     if (!data) return true
-    const nowKey = data.chart[data.chart.length - 1]?.key
+    const todayKey   = getPeriodKey(data.granularity, new Date())
     const currentKey = data.chart.find(c => c.isCurrent)?.key
-    return nowKey === currentKey
+    return todayKey === currentKey
   }, [data])
 
   if (loading && !data) {
@@ -256,7 +257,7 @@ function BucketRow({ bucket, granularity }) {
         <p className="text-sm text-gray-200 w-16 flex-shrink-0 font-medium">
           {bucketLabel(bucket)}
         </p>
-        <Sparkline data={sparkline} useLoad={useLoad} className="flex-1" />
+        <Sparkline data={sparkline} useLoad={useLoad} max={bestMetric} className="flex-1" />
         <p className="text-sm text-gray-100 tabular-nums w-16 text-right">
           {currentReps}
         </p>
@@ -285,9 +286,11 @@ function BucketRow({ bucket, granularity }) {
   )
 }
 
-function Sparkline({ data, useLoad, className = '' }) {
+function Sparkline({ data, useLoad, max: propMax, className = '' }) {
   const values = data.map(d => useLoad ? d.load : d.reps)
-  const max = Math.max(1, ...values)
+  // Prefer an explicit max (e.g., bucket's all-time best) so proportions stay
+  // stable as the user navigates periods.
+  const max = Math.max(1, propMax ?? Math.max(...values))
   return (
     <div className={`flex items-end gap-0.5 h-6 ${className}`}>
       {data.map((d, i) => {
@@ -324,6 +327,8 @@ function TopChart({ chart, useLoad, bestEver }) {
   const options = {
     responsive: true,
     maintainAspectRatio: false,
+    // No animation — otherwise navigating periods makes bars appear to "inflate/deflate".
+    animation: false,
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -331,8 +336,6 @@ function TopChart({ chart, useLoad, bestEver }) {
           label: ctx => useLoad ? `${fmtLoad(ctx.parsed.y)} load` : `${ctx.parsed.y} reps`,
         },
       },
-      // Simple 'best-ever' reference line via annotation-style plugin skipped for simplicity;
-      // best is already shown in the summary card above.
     },
     scales: {
       x: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: '#1f2937' } },
@@ -344,8 +347,9 @@ function TopChart({ chart, useLoad, bestEver }) {
         },
         grid: { color: '#1f2937' },
         beginAtZero: true,
-        // Draw the best-ever level as a max reference (only visible if it exceeds current max)
-        suggestedMax: bestEver ? bestEver * 1.05 : undefined,
+        // Hard-cap Y at your all-time best (with a little headroom). This keeps the
+        // scale stable across period navigation so bar heights are comparable at a glance.
+        max: bestEver && bestEver > 0 ? bestEver * 1.05 : undefined,
       },
     },
   }

@@ -354,12 +354,10 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
     })
   }
 
-  // Sort exercises: weighted (by total load desc) first, then BW-only (by total reps desc)
-  const exercises = [...exerciseMap.values()].sort((a, b) => {
-    if (a.allBW !== b.allBW) return a.allBW ? 1 : -1
-    if (a.allBW) return b.totalReps - a.totalReps
-    return b.totalLoad - a.totalLoad
-  })
+  // Sort exercises by total reps done in the period (descending).
+  // Reps is a universal measure — puts the most-done exercises on top regardless of
+  // whether they're weighted or bodyweight.
+  const exercises = [...exerciseMap.values()].sort((a, b) => b.totalReps - a.totalReps)
 
   return {
     granularity,
