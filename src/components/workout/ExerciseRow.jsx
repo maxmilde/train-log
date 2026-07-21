@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Trash2 } from 'lucide-react'
 import ExerciseAutocomplete from './ExerciseAutocomplete'
 import SetRow from './SetRow'
+import ReorderControl from './ReorderControl'
 import { formatPB } from '../../lib/utils'
 import { getPersonalBest } from '../../lib/db'
 import { useAuth } from '../../context/AuthContext'
@@ -9,6 +10,11 @@ import { useAuth } from '../../context/AuthContext'
 export default function ExerciseRow({
   exercise,
   exerciseNames,
+  showReorder = false,
+  canMoveUp = false,
+  canMoveDown = false,
+  onMoveUp,
+  onMoveDown,
   onUpdate,
   onDelete,
   onAddSet,
@@ -38,6 +44,14 @@ export default function ExerciseRow({
     <div className="bg-gray-800 rounded-2xl p-4 space-y-3">
       {/* Exercise name row */}
       <div className="flex gap-2 items-start">
+        {showReorder && (
+          <ReorderControl
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+          />
+        )}
         <ExerciseAutocomplete
           value={exercise.exerciseName}
           options={exerciseNames}

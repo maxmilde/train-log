@@ -1,4 +1,5 @@
 import { Trophy, Clock } from 'lucide-react'
+import { isVestWeight } from '../../lib/utils'
 
 export default function WorkoutSummary({ exercises, complexes = [], durationMinutes }) {
   const hasWork = (exercises && exercises.length > 0) || (complexes && complexes.length > 0)
@@ -55,7 +56,8 @@ export default function WorkoutSummary({ exercises, complexes = [], durationMinu
 
   function formatReps(g) {
     if (g.totalReps === 0) return '0'
-    if (g.weightType === 'single') {
+    // Per-side "X/X" only for kettlebell singles — not for the 10kg vest.
+    if (g.weightType === 'single' && !isVestWeight(g.weightKg)) {
       return `${g.totalReps}/${g.totalReps}`
     }
     return `${g.totalReps}`

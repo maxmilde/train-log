@@ -72,7 +72,7 @@ function normExercise(ex) {
 function normComplex(c) {
   return {
     id:           c.id,
-    rounds:       c.rounds ?? 1,
+    rounds:       c.rounds ?? 0,
     displayOrder: c.display_order ?? 0,
     exercises:    [],  // populated by normDay
   }
@@ -209,10 +209,19 @@ export default function WorkoutDayPage() {
         display_order: nextItemOrder(currentState),
       })
 
+      // Auto-create the first empty set so the user can start logging immediately
+      const firstSet = await upsertSet(user.id, ex.id, {
+        set_number: 1,
+        reps: null,
+        weight_kg: 24,
+        weight_type: 'single',
+        rounds: 1,
+      })
+
       setState(prev => ({
         ...prev,
         dayId,
-        exercises: [...prev.exercises, normExercise(ex)],
+        exercises: [...prev.exercises, normExercise({ ...ex, exercise_sets: [firstSet] })],
       }))
 
       // Refresh exercise names
@@ -321,7 +330,7 @@ export default function WorkoutDayPage() {
       const currentState = state
       const dayId = currentState.dayId ?? await ensureDay(currentState)
       const cx = await upsertComplex(user.id, dayId, {
-        rounds: 1,
+        rounds: 0,  // starts at 0 — user increments as they complete rounds
         display_order: nextItemOrder(currentState),
       })
       setState(prev => ({

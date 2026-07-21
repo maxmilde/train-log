@@ -1,14 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { Trash2, Plus, Minus, Layers, BookOpen, X } from 'lucide-react'
 import ExerciseAutocomplete from './ExerciseAutocomplete'
+import ReorderControl from './ReorderControl'
 import { useAuth } from '../../context/AuthContext'
 import { getComplexTemplates } from '../../lib/db'
+import { isVestWeight } from '../../lib/utils'
 
 const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 
 export default function ComplexRow({
   complex,
   exerciseNames,
+  showReorder = false,
+  canMoveUp = false,
+  canMoveDown = false,
+  onMoveUp,
+  onMoveDown,
   onUpdate,
   onDelete,
   onAddExercise,
@@ -21,16 +28,17 @@ export default function ComplexRow({
   const [showTemplates, setShowTemplates] = useState(false)
   const [templates, setTemplates] = useState(null)
   const [loadingTemplates, setLoadingTemplates] = useState(false)
-  const rounds = complex.rounds ?? 1
+  const rounds = complex.rounds ?? 0
 
+  // Complexes can be 0 rounds (placeholder for a block done later in the session)
   function bumpRounds(delta) {
-    const next = Math.max(1, Math.min(999, rounds + delta))
+    const next = Math.max(0, Math.min(999, rounds + delta))
     if (next !== rounds) onUpdate({ rounds: next })
   }
   function handleRoundsInput(e) {
     const raw = e.target.value.replace(/[^0-9]/g, '')
     if (raw === '') return
-    const n = Math.max(1, Math.min(999, parseInt(raw, 10)))
+    const n = Math.max(0, Math.min(999, parseInt(raw, 10)))
     if (n !== rounds) onUpdate({ rounds: n })
   }
 
@@ -62,8 +70,16 @@ export default function ComplexRow({
 
   return (
     <div className="bg-gray-800 rounded-2xl p-4 space-y-3 border border-purple-900/40">
-      {/* Header: 'Complex' label + rounds stepper + delete */}
+      {/* Header: reorder + 'Complex' label + rounds stepper + delete */}
       <div className="flex items-center gap-2">
+        {showReorder && (
+          <ReorderControl
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+          />
+        )}
         <div className="flex items-center gap-1.5 text-purple-400 text-xs font-semibold uppercase tracking-wider">
           <Layers size={13} />
           Complex
@@ -251,6 +267,7 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
   const effectiveType = set.weightType ?? exercise.weightType ?? 'single'
   const effectiveKg = set.weightKg ?? exercise.weightKg ?? null
   const isBW = effectiveType === 'bodyweight' || effectiveKg == null
+  const isVest = !isBW && isVestWeight(effectiveKg)
 
   function handleRepsChange(e) {
     const raw = e.target.value.replace(/[^0-9]/g, '')
@@ -269,7 +286,9 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
   }
   function handleSelectWeight(w) {
     setShowWeightPicker(false)
-    const nextType = (effectiveType === 'bodyweight') ? 'single' : effectiveType
+    const nextType = isVestWeight(w)
+      ? 'single'
+      : (effectiveType === 'bodyweight') ? 'single' : effectiveType
     onUpdateSet({ weightKg: w, weightType: nextType })
   }
   function handleToggleType(nextType) {
@@ -309,8 +328,8 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
                    focus:outline-none focus:border-green-500 flex-shrink-0"
       />
 
-      {/* 1×/2× toggle — hidden when BW */}
-      {!isBW ? (
+      {/* 1×/2× toggle — hidden when BW or vest (10kg) */}
+      {!isBW && !isVest ? (
         <div className="flex rounded-md overflow-hidden border border-gray-700 flex-shrink-0">
           {['single', 'double'].map(wt => (
             <button

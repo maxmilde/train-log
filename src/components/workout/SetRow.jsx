@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { Trash2, Minus, Plus } from 'lucide-react'
+import { isVestWeight } from '../../lib/utils'
 
 const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 
@@ -40,12 +41,16 @@ export default function SetRow({
   const effectiveWeight = set.weightKg ?? exerciseWeightKg ?? null
   // This individual SET is "bodyweight" if its type says so, or if it has no weight
   const setIsBW = effectiveType === 'bodyweight' || effectiveWeight == null
+  // 10kg = weight vest: plain reps, no 1×/2× toggle
+  const isVest = !setIsBW && isVestWeight(effectiveWeight)
   const rounds = set.rounds ?? 1
 
   function handleSelectWeight(weight) {
     setShowWeightPicker(false)
-    // Switching from BW to weighted; default to 'single' if no current weighted type
-    const nextType = (effectiveType === 'bodyweight' || effectiveType == null) ? 'single' : effectiveType
+    // Vest weight is always 'single'. Otherwise keep current type (default single from BW).
+    const nextType = isVestWeight(weight)
+      ? 'single'
+      : (effectiveType === 'bodyweight' || effectiveType == null) ? 'single' : effectiveType
     onUpdate({ weightKg: weight, weightType: nextType })
   }
   function handleSelectBW() {
@@ -93,9 +98,9 @@ export default function SetRow({
           className={`w-full rounded-lg bg-gray-900 border border-gray-700
                      pl-3 pr-10 py-2.5 text-gray-100 text-center text-base min-h-[44px]
                      focus:outline-none focus:border-green-500 transition-colors
-                     ${effectiveType === 'single' && repsNum ? 'text-transparent' : ''}`}
+                     ${effectiveType === 'single' && !isVest && repsNum ? 'text-transparent' : ''}`}
         />
-        {effectiveType === 'single' && repsNum != null && (
+        {effectiveType === 'single' && !isVest && repsNum != null && (
           <span className="absolute inset-y-0 left-3 right-10 flex items-center justify-center text-base text-gray-100 pointer-events-none">
             {repsNum}/{repsNum}
           </span>
@@ -155,8 +160,8 @@ export default function SetRow({
         )}
       </div>
 
-      {/* 1×/2× toggle — hidden when this set is BW */}
-      {!setIsBW ? (
+      {/* 1×/2× toggle — hidden when BW or vest (10kg) */}
+      {!setIsBW && !isVest ? (
         <div className="flex rounded-md overflow-hidden border border-gray-700 flex-shrink-0">
           {['single', 'double'].map(wt => (
             <button

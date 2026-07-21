@@ -16,6 +16,14 @@ export function toDateStr(date) {
   return format(date, 'yyyy-MM-dd')
 }
 
+// 10kg is a weight vest, not a kettlebell: reps are counted as plain totals
+// (not per-side "X/X"), and there is no 1×/2× option. weight_type is forced to
+// 'single' so load = reps × 10 × 1.
+export const VEST_WEIGHT_KG = 10
+export function isVestWeight(kg) {
+  return kg === VEST_WEIGHT_KG
+}
+
 export function parseDateStr(dateStr) {
   return new Date(dateStr + 'T00:00:00')
 }
@@ -193,7 +201,8 @@ export function formatTime(totalSeconds) {
 
 export function formatPB(pb) {
   if (!pb) return null
-  const isSingle = pb.weight_type === 'single'
+  // Vest (10kg) is stored as 'single' but should read as plain reps, not X/X
+  const isSingle = pb.weight_type === 'single' && !isVestWeight(pb.weight_kg)
 
   // Build weight suffix
   let weightStr = ''
