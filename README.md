@@ -6,7 +6,7 @@ It's designed around how people actually train: logging sets and reps as you go,
 
 ## What it's for
 
-- **Log workouts fast** on your phone, mid-session, without fighting the UI.
+- **Log workouts fast** on your phone, mid-session
 - **Track real progress** — not just "did I train?" but "am I doing more total work, and am I moving heavier weight?"
 - **Keep a searchable history** of every exercise, weight configuration, and personal best you've ever hit.
 - **Plan the next session** with data-driven exercise suggestions based on what you've been neglecting.
