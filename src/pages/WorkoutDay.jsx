@@ -490,7 +490,7 @@ export default function WorkoutDayPage() {
           c.id === complexId
             ? {
                 ...c,
-                rounds: result.rounds,
+                // rounds intentionally untouched — templates carry structure + reps only
                 exercises: result.exercises.map(({ exercise, set }) => ({
                   id:           exercise.id,
                   exerciseName: exercise.exercise_name ?? '',

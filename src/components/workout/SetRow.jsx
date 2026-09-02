@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Trash2, Minus, Plus } from 'lucide-react'
-import { isVestWeight } from '../../lib/utils'
+import { isVestType, VEST_WEIGHT_KG } from '../../lib/utils'
 
 const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 
@@ -41,21 +41,25 @@ export default function SetRow({
   const effectiveWeight = set.weightKg ?? exerciseWeightKg ?? null
   // This individual SET is "bodyweight" if its type says so, or if it has no weight
   const setIsBW = effectiveType === 'bodyweight' || effectiveWeight == null
-  // 10kg = weight vest: plain reps, no 1×/2× toggle
-  const isVest = !setIsBW && isVestWeight(effectiveWeight)
+  // Weight vest is its own type: plain reps, no 1×/2× toggle
+  const isVest = isVestType(effectiveType)
   const rounds = set.rounds ?? 1
 
   function handleSelectWeight(weight) {
     setShowWeightPicker(false)
-    // Vest weight is always 'single'. Otherwise keep current type (default single from BW).
-    const nextType = isVestWeight(weight)
+    // Coming from BW or vest, land on 'single'; otherwise keep the current 1×/2× choice.
+    const nextType = (effectiveType === 'bodyweight' || effectiveType === 'vest' || effectiveType == null)
       ? 'single'
-      : (effectiveType === 'bodyweight' || effectiveType == null) ? 'single' : effectiveType
+      : effectiveType
     onUpdate({ weightKg: weight, weightType: nextType })
   }
   function handleSelectBW() {
     setShowWeightPicker(false)
     onUpdate({ weightKg: null, weightType: 'bodyweight' })
+  }
+  function handleSelectVest() {
+    setShowWeightPicker(false)
+    onUpdate({ weightKg: VEST_WEIGHT_KG, weightType: 'vest' })
   }
   function handleToggleType(nextType) {
     if (nextType !== effectiveType) onUpdate({ weightType: nextType })
@@ -77,6 +81,7 @@ export default function SetRow({
   // Chip label
   let chipLabel
   if (setIsBW) chipLabel = 'BW'
+  else if (isVest) chipLabel = 'Vest'
   else chipLabel = effectiveType === 'double' ? `2×${effectiveWeight}` : `${effectiveWeight}`
 
   return (
@@ -193,7 +198,7 @@ export default function SetRow({
           aria-label="Set weight"
         >
           {chipLabel}
-          {!setIsBW && (
+          {!setIsBW && !isVest && (
             <span className="text-[9px] text-gray-600 ml-0.5">kg</span>
           )}
         </button>
@@ -215,8 +220,16 @@ export default function SetRow({
               >
                 BW
               </button>
+              <button
+                type="button"
+                onClick={handleSelectVest}
+                className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
+                  ${isVest ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
+              >
+                Vest {VEST_WEIGHT_KG}kg
+              </button>
               {WEIGHT_OPTIONS.map(w => {
-                const selected = !setIsBW && w === effectiveWeight
+                const selected = !setIsBW && !isVest && w === effectiveWeight
                 return (
                   <button
                     key={w}

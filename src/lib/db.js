@@ -409,9 +409,11 @@ export async function getComplexTemplates(userId) {
     if (exs.length === 0) continue
     templates.push({
       lastDate: cx.workout_days?.date ?? null,
-      rounds: cx.rounds ?? 1,
       exercises: exs,
-      signature: exs.map(e => `${e.name}|${e.weight_type}|${e.weight_kg ?? 'bw'}|${e.reps}`).join('>'),
+      // Templates capture STRUCTURE + REPS only. Weight and rounds are deliberately
+      // excluded so the same complex done at different loads dedupes into one entry —
+      // you pick the template, then dial in kg and rounds for the session.
+      signature: exs.map(e => `${e.name}|${e.reps}`).join('>'),
     })
   }
 
@@ -427,17 +429,11 @@ export async function getComplexTemplates(userId) {
 }
 
 // Populate an existing (empty) complex with a template's exercises.
-// Creates a workout_exercises row + one implicit set per template exercise.
+// Applies STRUCTURE + REPS only — weight defaults to 24kg single and rounds stay at 0,
+// so you dial in the load and count rounds fresh for this session.
 export async function applyComplexTemplate(userId, complexId, workoutDayId, template) {
-  const { rounds, exercises } = template
-  // Update the complex's rounds to match the template
-  const { error: cxErr } = await supabase
-    .from('workout_complexes')
-    .update({ rounds: rounds ?? 1 })
-    .eq('id', complexId)
-  if (cxErr) throw cxErr
+  const { exercises } = template
 
-  // Insert each exercise + one implicit set
   const created = []
   for (let i = 0; i < exercises.length; i++) {
     const tex = exercises[i]
@@ -447,8 +443,8 @@ export async function applyComplexTemplate(userId, complexId, workoutDayId, temp
         user_id: userId,
         workout_day_id: workoutDayId,
         exercise_name: tex.name,
-        weight_kg: tex.weight_type === 'bodyweight' ? null : tex.weight_kg,
-        weight_type: tex.weight_type,
+        weight_kg: 24,
+        weight_type: 'single',
         display_order: i,
         complex_id: complexId,
       })
@@ -462,8 +458,8 @@ export async function applyComplexTemplate(userId, complexId, workoutDayId, temp
         workout_exercise_id: newEx.id,
         set_number: 1,
         reps: tex.reps,
-        weight_kg: tex.weight_type === 'bodyweight' ? null : tex.weight_kg,
-        weight_type: tex.weight_type,
+        weight_kg: 24,
+        weight_type: 'single',
         rounds: 1,
       })
       .select()
@@ -471,7 +467,8 @@ export async function applyComplexTemplate(userId, complexId, workoutDayId, temp
     if (setErr) throw setErr
     created.push({ exercise: newEx, set: newSet })
   }
-  return { rounds: rounds ?? 1, exercises: created }
+  // Rounds intentionally left as-is (0 for a freshly-added complex)
+  return { exercises: created }
 }
 
 // ── EXERCISE SETS ───────────────────────────────────────────────────────────────

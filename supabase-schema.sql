@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS workout_exercises (
   user_id uuid REFERENCES auth.users NOT NULL,
   exercise_name text NOT NULL DEFAULT '',
   weight_kg integer,
-  weight_type text CHECK (weight_type IN ('single', 'double')) DEFAULT 'single',
+  weight_type text DEFAULT 'single',   -- 'single' | 'double' | 'bodyweight' | 'vest'
   goal_reps integer,            -- (deprecated) target total reps
   display_order integer DEFAULT 0,
   complex_id uuid,              -- optional: when set, this exercise belongs to a workout_complex
@@ -66,8 +66,25 @@ CREATE TABLE IF NOT EXISTS exercise_sets (
 
 -- For existing databases, add the column if it doesn't already exist.
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_kg integer;
--- Per-set weight_type ('single' | 'double' | 'bodyweight' | null = inherit from exercise)
+-- Per-set weight_type ('single' | 'double' | 'bodyweight' | 'vest' | null = inherit from exercise)
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS weight_type text;
+
+-- Older databases may still carry a CHECK limiting weight_type to ('single','double').
+-- Drop it so 'bodyweight' and 'vest' are valid.
+DO $$
+DECLARE cname text;
+BEGIN
+  FOR cname IN
+    SELECT con.conname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    WHERE rel.relname = 'workout_exercises'
+      AND con.contype = 'c'
+      AND pg_get_constraintdef(con.oid) ILIKE '%weight_type%'
+  LOOP
+    EXECUTE format('ALTER TABLE workout_exercises DROP CONSTRAINT %I', cname);
+  END LOOP;
+END$$;
 -- Per-set rounds multiplier (total reps in the set = reps * rounds). Defaults to 1.
 ALTER TABLE exercise_sets ADD COLUMN IF NOT EXISTS rounds integer DEFAULT 1;
 -- Complex membership: exercises can belong to a complex whose rounds multiply their reps.

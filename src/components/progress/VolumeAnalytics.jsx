@@ -28,7 +28,12 @@ function fmtDate(d) {
 }
 function bucketLabel(b) {
   if (b.isBW) return 'BW'
+  if (b.type === 'vest') return 'Vest'
   return b.type === 'double' ? `2×${b.weight}kg` : `${b.weight}kg`
+}
+// 'day' | 'week' | 'month' → the noun used when naming the best period
+function periodWord(g) {
+  return g === 'day' ? 'day' : g === 'week' ? 'week' : 'month'
 }
 
 export default function VolumeAnalytics() {
@@ -170,10 +175,11 @@ export default function VolumeAnalytics() {
                   <TrendingDown size={14} className="text-gray-500" />
                 )}
                 <span className={`text-xs ${pctOfBest >= 90 ? 'text-green-400' : 'text-gray-400'}`}>
-                  {pctOfBest}% of best (
-                  {useLoad ? fmtLoad(bestEver.load) : bestEver.reps + ' reps'}
-                  {bestEver.date ? `, ${fmtDate(bestEver.date)}` : ''}
-                  )
+                  {pctOfBest}% of your best {granularity} ever
+                  {' ('}
+                  {useLoad ? fmtLoad(bestEver.load) + ' load' : bestEver.reps + ' reps'}
+                  {bestEver.date ? `, ${periodWord(granularity)} of ${fmtDate(bestEver.date)}` : ''}
+                  {')'}
                 </span>
               </>
             )}
@@ -269,17 +275,17 @@ function BucketRow({ bucket, granularity }) {
           </span>
         ) : bestMetric > 0 ? (
           <span className={`text-[11px] ${pctOfBest >= 90 ? 'text-green-400' : 'text-gray-500'}`}>
-            {pctOfBest}% of best ({useLoad ? fmtLoad(bestPeriodEver.load) : bestPeriodEver.reps + ' reps'}
-            {bestPeriodEver.date ? `, ${fmtDate(bestPeriodEver.date)}` : ''})
+            {pctOfBest}% of best {granularity} ({useLoad ? fmtLoad(bestPeriodEver.load) + ' load' : bestPeriodEver.reps + ' reps'}
+            {bestPeriodEver.date ? `, ${periodWord(granularity)} of ${fmtDate(bestPeriodEver.date)}` : ''})
           </span>
         ) : (
           <span className="text-[11px] text-gray-600">(new)</span>
         )}
       </div>
-      {/* Best day within period — only meaningful for week/month */}
+      {/* Best single DAY inside this period — a day total, not a single set */}
       {granularity !== 'day' && bestDayInPeriod.date && bestDayInPeriod.reps > 0 && (
         <p className="text-[11px] text-gray-500 pl-16 mt-0.5">
-          best single workout: {bestDayInPeriod.reps} ({bestDayInPeriod.date})
+          best day this {granularity}: {bestDayInPeriod.reps} reps ({bestDayInPeriod.date})
         </p>
       )}
     </div>

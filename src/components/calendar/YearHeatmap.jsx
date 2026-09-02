@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { buildHeatmapGrid, buildMonthLabels, toDateStr } from '../../lib/utils'
 
@@ -16,6 +17,19 @@ export default function YearHeatmap({ year, dayMap }) {
   const monthLabels = buildMonthLabels(year)
   const today = toDateStr(new Date())
 
+  const scrollRef = useRef(null)
+  const todayColRef = useRef(null)
+
+  // Centre the current week horizontally on mount. Set scrollLeft directly rather
+  // than scrollIntoView so the page itself never jumps vertically.
+  useEffect(() => {
+    const container = scrollRef.current
+    const col = todayColRef.current
+    if (!container || !col) return
+    const target = col.offsetLeft - (container.clientWidth / 2) + (col.offsetWidth / 2)
+    container.scrollLeft = Math.max(0, target)
+  }, [year])
+
   // Only submitted days show color; unsubmitted past days = rest (gray)
   function getDayType(dateStr, isCurrentYear) {
     if (!isCurrentYear) return 'empty'
@@ -26,7 +40,7 @@ export default function YearHeatmap({ year, dayMap }) {
 
   return (
     <section className="px-3 py-2">
-      <div className="overflow-x-auto">
+      <div ref={scrollRef} className="overflow-x-auto scrollbar-none">
         <div className="inline-flex flex-col gap-0 min-w-max">
 
           {/* Month labels row */}
@@ -51,8 +65,14 @@ export default function YearHeatmap({ year, dayMap }) {
               ))}
             </div>
 
-            {weeks.map((week, wi) => (
-              <div key={wi} className="flex flex-col gap-[2px] mr-[2px]">
+            {weeks.map((week, wi) => {
+              const hasToday = week.some(d => d.dateStr === today)
+              return (
+              <div
+                key={wi}
+                ref={hasToday ? todayColRef : undefined}
+                className="flex flex-col gap-[2px] mr-[2px]"
+              >
                 {week.map(({ dateStr, isCurrentYear }) => {
                   const type = getDayType(dateStr, isCurrentYear)
                   const isToday = dateStr === today
@@ -74,7 +94,8 @@ export default function YearHeatmap({ year, dayMap }) {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>

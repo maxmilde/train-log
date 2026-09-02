@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getWorkoutFeed, copyWorkoutToDate } from '../../lib/db'
-import { toDateStr } from '../../lib/utils'
+import { toDateStr, weightLabelFor } from '../../lib/utils'
 import { ChevronDown, ChevronUp, Copy } from 'lucide-react'
 
 const PAGE_SIZE = 20
@@ -157,19 +157,18 @@ export default function WorkoutFeed() {
                   // Total reps respects per-set rounds
                   const totalReps = sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
                   const exIsBW = ex.weight_type === 'bodyweight'
-                  const headerWeight = exIsBW
-                    ? 'BW'
-                    : ex.weight_type === 'double'
-                      ? `2\u00d7${ex.weight_kg}kg`
-                      : `${ex.weight_kg}kg`
                   // Effective per-set label: respects per-set weight_type + weight_kg overrides
                   const effLabel = (s) => {
                     const t = s.weight_type ?? ex.weight_type
                     if (t === 'bodyweight' || (exIsBW && s.weight_kg == null)) return 'BW'
                     const w = s.weight_kg ?? ex.weight_kg
-                    return t === 'double' ? `2\u00d7${w}` : `${w}`
+                    return weightLabelFor(t, w)
                   }
-                  let prevLabel = null
+                  // Header shows the FIRST set's weight, so the badge below never repeats it
+                  const headerWeight = sets.length > 0
+                    ? effLabel(sets[0])
+                    : weightLabelFor(ex.weight_type, ex.weight_kg)
+                  let prevLabel = sets.length > 0 ? effLabel(sets[0]) : null
 
                   return (
                     <div key={i}>
@@ -186,12 +185,17 @@ export default function WorkoutFeed() {
                           prevLabel = lbl
                           const r = s.rounds ?? 1
                           return (
-                            <span key={si} className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
+                            <span key={si} className="contents">
+                              {/* Weight change marker is its own badge, never inside the reps chip */}
                               {showLabel && (
-                                <span className="text-blue-400 mr-0.5">@{lbl}</span>
+                                <span className="text-[11px] text-blue-400 bg-blue-950/40 border border-blue-900/50 rounded-md px-1.5 py-0.5">
+                                  {lbl}
+                                </span>
                               )}
-                              {s.reps ?? '—'}
-                              {r > 1 && <span className="text-gray-500">×{r}</span>}
+                              <span className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
+                                {s.reps ?? '—'}
+                                {r > 1 && <span className="text-gray-500">×{r}</span>}
+                              </span>
                             </span>
                           )
                         })}
@@ -210,20 +214,35 @@ export default function WorkoutFeed() {
                       <p className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold mb-1.5">
                         Complex × {rounds} round{rounds !== 1 ? 's' : ''}
                       </p>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2.5">
                         {cx.exercises.map((ex, ei) => {
                           const oneSet = (ex.exercise_sets ?? []).find(s => s.reps != null)
                           if (!oneSet) return null
                           const t = oneSet.weight_type ?? ex.weight_type
                           const isBWSet = t === 'bodyweight' || (ex.weight_type === 'bodyweight' && oneSet.weight_kg == null)
                           const kg = oneSet.weight_kg ?? ex.weight_kg
-                          const lbl = isBWSet ? 'BW' : t === 'double' ? `2×${kg}kg` : `${kg}kg`
-                          const total = (oneSet.reps ?? 0) * (oneSet.rounds ?? 1) * rounds
+                          const lbl = isBWSet ? 'BW' : weightLabelFor(t, kg)
+                          const perRound = (oneSet.reps ?? 0) * (oneSet.rounds ?? 1)
+                          const total = perRound * rounds
                           return (
-                            <div key={ei} className="flex items-center justify-between text-xs">
-                              <span className="text-gray-300 flex-1 truncate">{ex.exercise_name || 'Unnamed'}</span>
-                              <span className="text-gray-500 mx-2">{lbl}</span>
-                              <span className="text-gray-200 tabular-nums">{oneSet.reps} → {total}</span>
+                            // Same shape as a standalone exercise: name + weight on top,
+                            // reps chip and grey total underneath.
+                            <div key={ei}>
+                              <div className="flex items-baseline justify-between">
+                                <p className="text-sm text-gray-200 font-medium">
+                                  {ex.exercise_name || 'Unnamed'}
+                                </p>
+                                <p className="text-xs text-gray-500">{lbl}</p>
+                              </div>
+                              <div className="flex gap-1.5 mt-1 flex-wrap items-baseline">
+                                <span className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
+                                  {oneSet.reps}
+                                  {rounds > 1 && <span className="text-gray-500">×{rounds}</span>}
+                                </span>
+                                <span className="text-[11px] text-gray-500 ml-1">
+                                  = {total} reps
+                                </span>
+                              </div>
                             </div>
                           )
                         })}

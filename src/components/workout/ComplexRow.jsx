@@ -4,7 +4,7 @@ import ExerciseAutocomplete from './ExerciseAutocomplete'
 import ReorderControl from './ReorderControl'
 import { useAuth } from '../../context/AuthContext'
 import { getComplexTemplates } from '../../lib/db'
-import { isVestWeight } from '../../lib/utils'
+import { isVestType, VEST_WEIGHT_KG } from '../../lib/utils'
 
 const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 
@@ -189,15 +189,9 @@ function TemplatePicker({ templates, loading, onPick, onClose }) {
     const summary = t.exercises.slice(0, 4).map(e => e.name).join(' → ')
     return t.exercises.length > 4 ? summary + ' …' : summary
   }
+  // Templates carry structure + reps only — no weights shown, you set those per session.
   function fmtDetail(t) {
-    return t.exercises.map(e => {
-      const w = e.weight_type === 'bodyweight' || !e.weight_kg
-        ? 'BW'
-        : e.weight_type === 'double'
-          ? `2×${e.weight_kg}kg`
-          : `${e.weight_kg}kg`
-      return `${e.name} ${w} × ${e.reps}`
-    }).join(' · ')
+    return t.exercises.map(e => `${e.name} × ${e.reps}`).join(' · ')
   }
 
   return (
@@ -237,7 +231,7 @@ function TemplatePicker({ templates, loading, onPick, onClose }) {
             >
               <p className="text-sm text-gray-100 font-medium">{fmtLabel(t)}</p>
               <p className="text-[11px] text-gray-500 mt-0.5">
-                ×{t.rounds} rounds · last done {t.lastDate ?? '—'}
+                {t.exercises.length} exercises · last done {t.lastDate ?? '—'}
               </p>
               <p className="text-[10px] text-gray-600 mt-1 truncate">{fmtDetail(t)}</p>
             </button>
@@ -267,7 +261,7 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
   const effectiveType = set.weightType ?? exercise.weightType ?? 'single'
   const effectiveKg = set.weightKg ?? exercise.weightKg ?? null
   const isBW = effectiveType === 'bodyweight' || effectiveKg == null
-  const isVest = !isBW && isVestWeight(effectiveKg)
+  const isVest = isVestType(effectiveType)
 
   function handleRepsChange(e) {
     const raw = e.target.value.replace(/[^0-9]/g, '')
@@ -284,11 +278,15 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
     setShowWeightPicker(false)
     onUpdateSet({ weightKg: null, weightType: 'bodyweight' })
   }
+  function handleSelectVest() {
+    setShowWeightPicker(false)
+    onUpdateSet({ weightKg: VEST_WEIGHT_KG, weightType: 'vest' })
+  }
   function handleSelectWeight(w) {
     setShowWeightPicker(false)
-    const nextType = isVestWeight(w)
+    const nextType = (effectiveType === 'bodyweight' || effectiveType === 'vest')
       ? 'single'
-      : (effectiveType === 'bodyweight') ? 'single' : effectiveType
+      : effectiveType
     onUpdateSet({ weightKg: w, weightType: nextType })
   }
   function handleToggleType(nextType) {
@@ -297,6 +295,7 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
 
   let chipLabel
   if (isBW) chipLabel = 'BW'
+  else if (isVest) chipLabel = 'Vest'
   else chipLabel = effectiveType === 'double' ? `2×${effectiveKg}` : `${effectiveKg}`
 
   return (
@@ -360,7 +359,7 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
           aria-label="Set weight"
         >
           {chipLabel}
-          {!isBW && <span className="text-[9px] text-gray-600 ml-0.5">kg</span>}
+          {!isBW && !isVest && <span className="text-[9px] text-gray-600 ml-0.5">kg</span>}
         </button>
         {showWeightPicker && (
           <>
@@ -380,8 +379,16 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
               >
                 BW
               </button>
+              <button
+                type="button"
+                onClick={handleSelectVest}
+                className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
+                  ${isVest ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
+              >
+                Vest {VEST_WEIGHT_KG}kg
+              </button>
               {WEIGHT_OPTIONS.map(w => {
-                const selected = !isBW && w === effectiveKg
+                const selected = !isBW && !isVest && w === effectiveKg
                 return (
                   <button
                     key={w}

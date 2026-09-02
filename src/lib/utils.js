@@ -16,12 +16,24 @@ export function toDateStr(date) {
   return format(date, 'yyyy-MM-dd')
 }
 
-// 10kg is a weight vest, not a kettlebell: reps are counted as plain totals
-// (not per-side "X/X"), and there is no 1×/2× option. weight_type is forced to
-// 'single' so load = reps × 10 × 1.
+// The weight vest is its own weight_type ('vest'), distinct from kettlebell/dumbbell
+// work. Reps are plain totals (never per-side "X/X") and there is no 1×/2× option.
+// Load counts as reps × VEST_WEIGHT_KG × 1.
+// NOTE: 10kg on its own is a normal weight (dumbbells) and keeps the 1×/2× toggle.
 export const VEST_WEIGHT_KG = 10
-export function isVestWeight(kg) {
-  return kg === VEST_WEIGHT_KG
+export function isVestType(weightType) {
+  return weightType === 'vest'
+}
+// Label for any (weight_type, weight_kg) pair.
+export function weightLabelFor(weightType, weightKg) {
+  if (weightType === 'bodyweight' || weightKg == null) return 'BW'
+  if (weightType === 'vest') return `Vest ${weightKg}kg`
+  if (weightType === 'double') return `2×${weightKg}kg`
+  return `${weightKg}kg`
+}
+// Reps read per-side ("20/20") only for single kettlebell work — not vest, not double, not BW.
+export function repsAreParSide(weightType) {
+  return weightType === 'single'
 }
 
 export function parseDateStr(dateStr) {
@@ -201,18 +213,8 @@ export function formatTime(totalSeconds) {
 
 export function formatPB(pb) {
   if (!pb) return null
-  // Vest (10kg) is stored as 'single' but should read as plain reps, not X/X
-  const isSingle = pb.weight_type === 'single' && !isVestWeight(pb.weight_kg)
-
-  // Build weight suffix
-  let weightStr = ''
-  if (pb.weight_type === 'bodyweight' || !pb.weight_kg) {
-    weightStr = ' @BW'
-  } else if (pb.weight_type === 'double') {
-    weightStr = ` @2\u00d7${pb.weight_kg}kg`
-  } else {
-    weightStr = ` @${pb.weight_kg}kg`
-  }
+  const isSingle = repsAreParSide(pb.weight_type)
+  const weightStr = ` @${weightLabelFor(pb.weight_type, pb.weight_kg)}`
 
   // New format: max volume + max set + weight
   if (pb.maxTotalReps !== undefined) {

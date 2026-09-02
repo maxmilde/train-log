@@ -1,20 +1,15 @@
 import { ChevronDown } from 'lucide-react'
-import { isVestWeight } from '../../lib/utils'
+import { weightLabelFor, repsAreParSide } from '../../lib/utils'
 
 export default function ExerciseHistory({ names, selected, onSelect, history }) {
   function weightLabel(entry) {
     if (entry.weight_type === 'bodyweight' || !entry.weight_kg) return 'Bodyweight'
-    return entry.weight_type === 'double'
-      ? `2×${entry.weight_kg}kg`
-      : `${entry.weight_kg}kg`
+    return weightLabelFor(entry.weight_type, entry.weight_kg)
   }
 
-  function repsLabel(reps, weightType, weightKg) {
+  function repsLabel(reps, weightType) {
     if (reps == null) return '—'
-    // 10kg vest reads as plain reps even though it's stored as 'single'
-    return weightType === 'single' && !isVestWeight(weightKg)
-      ? `${reps}/${reps}`
-      : `${reps}`
+    return repsAreParSide(weightType) ? `${reps}/${reps}` : `${reps}`
   }
 
   function totalReps(sets, complexRounds = 1) {
@@ -97,7 +92,7 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
               </div>
               <div className="flex justify-between items-baseline">
                 <p className="text-blue-200 text-sm">
-                  Best set: <span className="font-bold">{repsLabel(pb.maxSet, pb.weight_type, pb.weight_kg)}</span>
+                  Best set: <span className="font-bold">{repsLabel(pb.maxSet, pb.weight_type)}</span>
                 </p>
                 <p className="text-blue-700 text-[10px]">{pb.setDate}</p>
               </div>
@@ -129,12 +124,11 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
                   const t = s.effective_weight_type ?? entry.weight_type
                   if (t === 'bodyweight' || (exDefaultIsBW && s.weight_kg == null)) return 'BW'
                   const w = s.effective_weight_kg ?? entry.weight_kg
-                  return t === 'double' ? `2×${w}` : `${w}`
+                  return weightLabelFor(t, w)
                 }
                 const effReps = (s) => {
                   const t = s.effective_weight_type ?? entry.weight_type
-                  const w = s.effective_weight_kg ?? entry.weight_kg
-                  return repsLabel(s.reps, t, w)
+                  return repsLabel(s.reps, t)
                 }
                 let prev = null
                 return (
