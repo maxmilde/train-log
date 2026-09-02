@@ -16,7 +16,7 @@ It's designed around how people actually train: logging sets and reps as you go,
 ### Logging
 - **Flexible exercise entry** — name autocomplete that remembers every exercise you've logged. Add an exercise and a first set appears instantly, ready to fill in.
 - **Per-set weight & type** — each set carries its own weight (10–32 kg) and type (1× single / 2× double kettlebell). Mix weights within a single exercise — e.g. 5 sets at 2×24 kg, then bump to 2×28 kg mid-exercise, and it's all tracked separately.
-- **Bodyweight & weight vest** — bodyweight exercises (pushups, pullups) log as reps only. The 10 kg weight vest is handled specially: plain rep counts, no 1×/2× toggle, load counted as `reps × 10`.
+- **Bodyweight & weight vest** — bodyweight exercises (pushups, pullups) log as reps only. The weight vest is its own option in the weight picker: plain rep counts, no 1×/2× toggle, load counted as `reps × 10`. Plain 10 kg stays a normal weight (dumbbells) and keeps the 1×/2× choice.
 - **Rounds multiplier** — instead of logging "10 pushups" five times, log 10 reps and bump the round counter as you complete each round. Great for greasing the groove.
 - **Complexes** — group several exercises that repeat together as a unit (e.g. 10 pushups → 10 long cycle → 6 hindu squats → 10 pushups = 1 round), then count rounds of the whole block. Save and reload complexes you've done before from a template picker.
 - **Copy a previous workout** to today with one tap — exercises, complexes, weights, and structure all reproduced.
