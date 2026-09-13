@@ -7,6 +7,7 @@ const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
 export default function SetRow({
   set,
   setNumber,
+  ghostReps,            // grey target from a saved workout's best session (optional)
   exerciseWeightType,   // exercise default — used only as initial fallback
   exerciseWeightKg,     // exercise default — used only as initial fallback
   onUpdate,
@@ -77,6 +78,10 @@ export default function SetRow({
   }
 
   const repsNum = repsStr.trim() === '' ? null : parseInt(repsStr, 10)
+  // Single-kettlebell reps render as "X/X" over a transparent input
+  const showPerSideOverlay = effectiveType === 'single' && !isVest && repsNum != null
+  // Matched or beat the grey target from the saved workout
+  const beatGhost = ghostReps != null && repsNum != null && repsNum >= ghostReps
 
   // Chip label
   let chipLabel
@@ -99,14 +104,15 @@ export default function SetRow({
           onChange={handleRepsChange}
           onFocus={handleRepsFocus}
           onBlur={handleRepsBlur}
-          placeholder="Reps"
+          placeholder={ghostReps != null ? String(ghostReps) : 'Reps'}
           className={`w-full rounded-lg bg-gray-900 border border-gray-700
-                     pl-3 pr-10 py-2.5 text-gray-100 text-center text-base min-h-[44px]
+                     pl-3 pr-10 py-2.5 text-center text-base min-h-[44px] placeholder-gray-600
                      focus:outline-none focus:border-green-500 transition-colors
-                     ${effectiveType === 'single' && !isVest && repsNum ? 'text-transparent' : ''}`}
+                     ${showPerSideOverlay ? 'text-transparent' : beatGhost ? 'text-green-400' : 'text-gray-100'}`}
         />
-        {effectiveType === 'single' && !isVest && repsNum != null && (
-          <span className="absolute inset-y-0 left-3 right-10 flex items-center justify-center text-base text-gray-100 pointer-events-none">
+        {showPerSideOverlay && (
+          <span className={`absolute inset-y-0 left-3 right-10 flex items-center justify-center text-base pointer-events-none
+                            ${beatGhost ? 'text-green-400' : 'text-gray-100'}`}>
             {repsNum}/{repsNum}
           </span>
         )}

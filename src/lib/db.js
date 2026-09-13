@@ -1,8 +1,11 @@
 import { supabase } from './supabase'
 import {
   getPeriodStart, getPeriodEnd, getPeriodKey, shiftPeriod,
-  formatPeriodLabel, formatPeriodShort, toDateStr,
+  formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight,
 } from './utils'
+import {
+  normalizeTemplateSession, pickBestSession, complexSignature, nameKey,
+} from './workoutTemplates'
 
 // ── USER SETTINGS ──────────────────────────────────────────────────────────────
 
@@ -387,8 +390,8 @@ export async function getComplexTemplates(userId) {
     .eq('user_id', userId)
   if (error) throw error
 
-  // Build template objects (skip empty complexes and unsubmitted days)
-  const templates = []
+  // One session per submitted, non-empty complex
+  const sessions = []
   for (const cx of data ?? []) {
     if (!cx.workout_days?.submitted) continue
     const exs = (cx.workout_exercises ?? [])
@@ -407,9 +410,12 @@ export async function getComplexTemplates(userId) {
       })
       .filter(e => e.name && e.reps != null)
     if (exs.length === 0) continue
-    templates.push({
-      lastDate: cx.workout_days?.date ?? null,
+    const rounds = cx.rounds ?? 0
+    sessions.push({
+      date: cx.workout_days?.date ?? null,
+      rounds,
       exercises: exs,
+      totalReps: exs.reduce((sum, e) => sum + e.reps * rounds, 0),
       // Templates capture STRUCTURE + REPS only. Weight and rounds are deliberately
       // excluded so the same complex done at different loads dedupes into one entry —
       // you pick the template, then dial in kg and rounds for the session.
@@ -417,15 +423,25 @@ export async function getComplexTemplates(userId) {
     })
   }
 
-  // Dedup by signature — keep the most recent per signature
+  // Group sessions by signature. The template's exercises come from the most recent
+  // session; the full history and best session are kept for browsing.
   const bySig = new Map()
-  for (const t of templates) {
-    const existing = bySig.get(t.signature)
-    if (!existing || (t.lastDate ?? '') > (existing.lastDate ?? '')) {
-      bySig.set(t.signature, t)
-    }
+  for (const s of sessions) {
+    if (!bySig.has(s.signature)) bySig.set(s.signature, [])
+    bySig.get(s.signature).push(s)
   }
-  return [...bySig.values()].sort((a, b) => (b.lastDate ?? '').localeCompare(a.lastDate ?? ''))
+  const templates = [...bySig.entries()].map(([signature, list]) => {
+    list.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+    const best = list.reduce((m, s) => (s.totalReps > m.totalReps ? s : m), list[0])
+    return {
+      signature,
+      lastDate: list[0].date,
+      exercises: list[0].exercises,
+      sessions: list,
+      best,
+    }
+  })
+  return templates.sort((a, b) => (b.lastDate ?? '').localeCompare(a.lastDate ?? ''))
 }
 
 // Populate an existing (empty) complex with a template's exercises.
@@ -437,14 +453,18 @@ export async function applyComplexTemplate(userId, complexId, workoutDayId, temp
   const created = []
   for (let i = 0; i < exercises.length; i++) {
     const tex = exercises[i]
+    // Pullups/pushups/crunches start as bodyweight; everything else at the 24kg default
+    const bw = defaultsToBodyweight(tex.name)
+    const kg = bw ? null : 24
+    const type = bw ? 'bodyweight' : 'single'
     const { data: newEx, error: exErr } = await supabase
       .from('workout_exercises')
       .insert({
         user_id: userId,
         workout_day_id: workoutDayId,
         exercise_name: tex.name,
-        weight_kg: 24,
-        weight_type: 'single',
+        weight_kg: kg,
+        weight_type: type,
         display_order: i,
         complex_id: complexId,
       })
@@ -458,8 +478,8 @@ export async function applyComplexTemplate(userId, complexId, workoutDayId, temp
         workout_exercise_id: newEx.id,
         set_number: 1,
         reps: tex.reps,
-        weight_kg: 24,
-        weight_type: 'single',
+        weight_kg: kg,
+        weight_type: type,
         rounds: 1,
       })
       .select()
@@ -469,6 +489,225 @@ export async function applyComplexTemplate(userId, complexId, workoutDayId, temp
   }
   // Rounds intentionally left as-is (0 for a freshly-added complex)
   return { exercises: created }
+}
+
+// ── SAVED WORKOUTS (TEMPLATES) ────────────────────────────────────────────────
+// A saved workout is a name. Sessions of it are the workout_days linked via template_id;
+// structure, grey target reps and weights are all derived from those sessions.
+
+export async function getWorkoutTemplates(userId) {
+  const { data, error } = await supabase
+    .from('workout_templates')
+    .select('id, name, created_at, workout_days(date, submitted)')
+    .eq('user_id', userId)
+  if (error) throw error
+  return (data ?? [])
+    .map(t => {
+      const done = (t.workout_days ?? []).filter(d => d.submitted).map(d => d.date).sort()
+      return {
+        id: t.id,
+        name: t.name,
+        sessions: done.length,
+        lastDate: done[done.length - 1] ?? null,
+      }
+    })
+    .sort((a, b) => (b.lastDate ?? '').localeCompare(a.lastDate ?? '') || a.name.localeCompare(b.name))
+}
+
+// Link a day to a saved workout by name, creating the saved workout if the name is new
+// (names match case-insensitively).
+export async function saveDayAsTemplate(userId, dayId, name) {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Give the workout a name')
+
+  const { data: existing, error: listErr } = await supabase
+    .from('workout_templates')
+    .select('id, name')
+    .eq('user_id', userId)
+  if (listErr) throw listErr
+
+  let template = (existing ?? []).find(t => t.name.toLowerCase() === trimmed.toLowerCase())
+  if (!template) {
+    const { data, error } = await supabase
+      .from('workout_templates')
+      .insert({ user_id: userId, name: trimmed })
+      .select('id, name')
+      .single()
+    if (error) throw error
+    template = data
+  }
+
+  const { error: linkErr } = await supabase
+    .from('workout_days')
+    .update({ template_id: template.id })
+    .eq('id', dayId)
+  if (linkErr) throw linkErr
+  return template
+}
+
+export async function unlinkDayTemplate(dayId) {
+  const { error } = await supabase
+    .from('workout_days')
+    .update({ template_id: null })
+    .eq('id', dayId)
+  if (error) throw error
+}
+
+// Deleting a saved workout keeps every logged session; they just stop being linked.
+export async function deleteWorkoutTemplate(templateId) {
+  const { error } = await supabase
+    .from('workout_templates')
+    .delete()
+    .eq('id', templateId)
+  if (error) throw error
+}
+
+// Submitted sessions of a saved workout, newest first, normalized for comparison.
+export async function getTemplateSessions(userId, templateId, excludeDayId = null) {
+  let query = supabase
+    .from('workout_days')
+    .select(`
+      id, date, submitted,
+      workout_exercises(id, exercise_name, weight_kg, weight_type, display_order, complex_id,
+        exercise_sets(set_number, reps, weight_kg, weight_type, rounds)),
+      workout_complexes(id, rounds, display_order)
+    `)
+    .eq('user_id', userId)
+    .eq('template_id', templateId)
+    .eq('submitted', true)
+    .order('date', { ascending: false })
+  if (excludeDayId) query = query.neq('id', excludeDayId)
+  const { data, error } = await query
+  if (error) throw error
+  return (data ?? [])
+    .map(normalizeTemplateSession)
+    .filter(s => s.exercises.length > 0 || s.complexes.length > 0)
+}
+
+// Build a saved workout into a day. Structure comes from the BEST session (so the grey
+// targets line up), weights from the MOST RECENT session. Reps start empty for normal
+// sets; complexes keep their per-round reps and start at 0 rounds. The day is linked
+// to the template so targets and the summary comparison survive a reload.
+export async function loadTemplateIntoDay(userId, dayId, templateId, startOrder = 0) {
+  const sessions = await getTemplateSessions(userId, templateId, dayId)
+  if (sessions.length === 0) {
+    throw new Error('Submit at least one session of this workout before loading it')
+  }
+  const best = pickBestSession(sessions)
+  const last = sessions[0]
+
+  // Weight lookups from the last session, matched the same way as grey targets
+  const lastExercise = new Map()
+  const seen = new Map()
+  for (const ex of last.exercises) {
+    const base = nameKey(ex.name)
+    const n = seen.get(base) ?? 0
+    seen.set(base, n + 1)
+    lastExercise.set(`${base}#${n}`, ex)
+  }
+  const lastComplex = new Map()
+  const seenCx = new Map()
+  for (const cx of last.complexes) {
+    const sig = complexSignature(cx.exercises.map(e => e.name))
+    const n = seenCx.get(sig) ?? 0
+    seenCx.set(sig, n + 1)
+    lastComplex.set(`${sig}#${n}`, cx)
+  }
+
+  const items = [
+    ...best.exercises.map(ex => ({ kind: 'exercise', item: ex })),
+    ...best.complexes.map(cx => ({ kind: 'complex', item: cx })),
+  ].sort((a, b) => a.item.displayOrder - b.item.displayOrder)
+
+  const occ = new Map()
+  const occCx = new Map()
+  let order = startOrder
+
+  for (const { kind, item } of items) {
+    if (kind === 'exercise') {
+      const base = nameKey(item.name)
+      const n = occ.get(base) ?? 0
+      occ.set(base, n + 1)
+      const prev = lastExercise.get(`${base}#${n}`)
+      const firstWeight = prev?.sets[0] ?? item.sets[0]
+
+      const { data: newEx, error: exErr } = await supabase
+        .from('workout_exercises')
+        .insert({
+          user_id: userId,
+          workout_day_id: dayId,
+          exercise_name: item.name,
+          weight_kg: firstWeight?.weightKg ?? item.weightKg,
+          weight_type: firstWeight?.weightType ?? item.weightType,
+          display_order: order++,
+        })
+        .select('id')
+        .single()
+      if (exErr) throw exErr
+
+      const setRows = item.sets.map((s, i) => {
+        const w = prev?.sets[i] ?? prev?.sets[prev.sets.length - 1] ?? s
+        return {
+          user_id: userId,
+          workout_exercise_id: newEx.id,
+          set_number: i + 1,
+          reps: null,
+          weight_kg: w.weightKg,
+          weight_type: w.weightType,
+          rounds: 1,
+        }
+      })
+      const { error: setErr } = await supabase.from('exercise_sets').insert(setRows)
+      if (setErr) throw setErr
+    } else {
+      const sig = complexSignature(item.exercises.map(e => e.name))
+      const n = occCx.get(sig) ?? 0
+      occCx.set(sig, n + 1)
+      const prev = lastComplex.get(`${sig}#${n}`)
+
+      const { data: newCx, error: cxErr } = await supabase
+        .from('workout_complexes')
+        .insert({ user_id: userId, workout_day_id: dayId, rounds: 0, display_order: order++ })
+        .select('id')
+        .single()
+      if (cxErr) throw cxErr
+
+      for (let i = 0; i < item.exercises.length; i++) {
+        const e = item.exercises[i]
+        const w = prev?.exercises[i] ?? e
+        const { data: newEx, error: exErr } = await supabase
+          .from('workout_exercises')
+          .insert({
+            user_id: userId,
+            workout_day_id: dayId,
+            exercise_name: e.name,
+            weight_kg: w.weightKg,
+            weight_type: w.weightType,
+            display_order: i,
+            complex_id: newCx.id,
+          })
+          .select('id')
+          .single()
+        if (exErr) throw exErr
+        const { error: setErr } = await supabase.from('exercise_sets').insert({
+          user_id: userId,
+          workout_exercise_id: newEx.id,
+          set_number: 1,
+          reps: e.reps,
+          weight_kg: w.weightKg,
+          weight_type: w.weightType,
+          rounds: 1,
+        })
+        if (setErr) throw setErr
+      }
+    }
+  }
+
+  const { error: linkErr } = await supabase
+    .from('workout_days')
+    .update({ template_id: templateId })
+    .eq('id', dayId)
+  if (linkErr) throw linkErr
 }
 
 // ── EXERCISE SETS ───────────────────────────────────────────────────────────────

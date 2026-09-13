@@ -15,8 +15,14 @@ import {
   deleteComplex,
   applyComplexTemplate,
   getExerciseNames,
+  getWorkoutTemplates,
+  getTemplateSessions,
+  saveDayAsTemplate,
+  unlinkDayTemplate,
+  loadTemplateIntoDay,
 } from '../lib/db'
-import { toDateStr } from '../lib/utils'
+import { toDateStr, defaultsToBodyweight } from '../lib/utils'
+import { pickBestSession, buildGhosts } from '../lib/workoutTemplates'
 import DayLog from '../components/workout/DayLog'
 
 function normDay(day) {
@@ -43,16 +49,23 @@ function normDay(day) {
     durationMinutes: day.duration_minutes ?? null,
     notes:           day.notes ?? '',
     submitted:       day.submitted ?? false,
+    templateId:      day.template_id ?? null,
     exercises: topLevelExercises,
     complexes,
   }
 }
 
+const emptyDay = (date) => ({
+  dayId: null, date, dayType: 'workout', durationMinutes: null, notes: '',
+  submitted: false, templateId: null, exercises: [], complexes: [],
+})
+
 function normExercise(ex) {
   return {
     id:           ex.id,
     exerciseName: ex.exercise_name ?? '',
-    weightKg:     ex.weight_kg ?? 24,
+    // Bodyweight exercises keep a null weight; weighted ones fall back to the 24kg default
+    weightKg:     ex.weight_type === 'bodyweight' ? null : (ex.weight_kg ?? 24),
     weightType:   ex.weight_type ?? 'single',
     displayOrder: ex.display_order ?? 0,
     complexId:    ex.complex_id ?? null,
@@ -67,6 +80,14 @@ function normExercise(ex) {
         rounds:     s.rounds ?? 1,
       })),
   }
+}
+
+// A set still carrying the untouched 24kg single default (or no weight at all)
+// is safe to flip to bodyweight when the exercise is named pullups/pushups/crunches.
+function hasDefaultWeight(set) {
+  const kg = set.weightKg
+  const type = set.weightType
+  return (kg == null && type == null) || (kg === 24 && (type == null || type === 'single'))
 }
 
 function normComplex(c) {
@@ -88,27 +109,53 @@ export default function WorkoutDayPage() {
   const [exerciseNames, setNames]   = useState([])
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState(false)
+  // Saved-workout context for this day: { id, name, best, ghosts } or null
+  const [templateInfo, setTemplateInfo] = useState(null)
 
   const fromDashboard = !!routeDate
 
-  // Load day data
-  useEffect(() => {
+  // Load (or reload) the day from the database
+  const loadDay = useCallback(async () => {
     if (!user) return
-    Promise.all([
-      getDayFull(user.id, date),
-      getExerciseNames(user.id),
-    ]).then(([day, names]) => {
+    try {
+      const [day, names] = await Promise.all([
+        getDayFull(user.id, date),
+        getExerciseNames(user.id),
+      ])
       setNames(names)
-      setState(day
-        ? normDay(day)
-        : { dayId: null, date, dayType: 'workout', durationMinutes: null, notes: '', submitted: false, exercises: [], complexes: [] }
-      )
-      setLoading(false)
-    }).catch(err => {
+      setState(day ? normDay(day) : emptyDay(date))
+    } catch (err) {
       console.error('WorkoutDay load error:', err)
+    } finally {
       setLoading(false)
-    })
+    }
   }, [user, date])
+
+  useEffect(() => { loadDay() }, [loadDay])
+
+  // When the day is linked to a saved workout, fetch its best past session for the
+  // grey target reps and the end-of-workout comparison.
+  const templateId = state?.templateId ?? null
+  const dayId = state?.dayId ?? null
+  useEffect(() => {
+    if (!user || !templateId) { setTemplateInfo(null); return }
+    let cancelled = false
+    Promise.all([
+      getWorkoutTemplates(user.id),
+      getTemplateSessions(user.id, templateId, dayId),
+    ]).then(([templates, sessions]) => {
+      if (cancelled) return
+      const template = templates.find(t => t.id === templateId)
+      const best = pickBestSession(sessions)
+      setTemplateInfo({
+        id: templateId,
+        name: template?.name ?? 'Saved workout',
+        best,
+        ghosts: buildGhosts(best),
+      })
+    }).catch(err => console.error('Template info:', err))
+    return () => { cancelled = true }
+  }, [user, templateId, dayId])
 
   // Ensure the day row exists in DB; returns dayId
   const ensureDay = useCallback(async (currentState) => {
@@ -231,21 +278,39 @@ export default function WorkoutDayPage() {
   }, [user, state, ensureDay])
 
   const handleUpdateExercise = useCallback(async (exerciseId, patch) => {
+    const ex = state.exercises.find(e => e.id === exerciseId)
+    if (!ex) return
+
+    // Naming it pullups/pushups/crunches switches the exercise and its
+    // untouched sets to bodyweight. Sets you've already set a weight on are left alone.
+    let fullPatch = patch
+    let bwSetIds = []
+    if ('exerciseName' in patch && defaultsToBodyweight(patch.exerciseName) && ex.weightType !== 'bodyweight') {
+      fullPatch = { ...patch, weightType: 'bodyweight', weightKg: null }
+      bwSetIds = ex.sets.filter(hasDefaultWeight).map(s => s.id)
+    }
+
     // Optimistic update
     setState(prev => ({
       ...prev,
-      exercises: prev.exercises.map(ex =>
-        ex.id === exerciseId ? { ...ex, ...patch } : ex
+      exercises: prev.exercises.map(e =>
+        e.id === exerciseId
+          ? {
+              ...e,
+              ...fullPatch,
+              sets: e.sets.map(s => bwSetIds.includes(s.id)
+                ? { ...s, weightKg: null, weightType: 'bodyweight' }
+                : s),
+            }
+          : e
       ),
     }))
 
     const dbFields = ['exerciseName', 'weightKg', 'weightType']
-    if (!dbFields.some(f => f in patch)) return
+    if (!dbFields.some(f => f in fullPatch)) return
 
     try {
-      const ex = state.exercises.find(e => e.id === exerciseId)
-      if (!ex) return
-      const merged = { ...ex, ...patch }
+      const merged = { ...ex, ...fullPatch }
       await upsertExercise(user.id, state.dayId, {
         id:            exerciseId,
         exercise_name: merged.exerciseName,
@@ -253,6 +318,16 @@ export default function WorkoutDayPage() {
         weight_type:   merged.weightType,
         display_order: merged.displayOrder,
       })
+      await Promise.all(ex.sets
+        .filter(s => bwSetIds.includes(s.id))
+        .map(s => upsertSet(user.id, exerciseId, {
+          id:          s.id,
+          set_number:  s.setNumber,
+          reps:        s.reps,
+          weight_kg:   null,
+          weight_type: 'bodyweight',
+          rounds:      s.rounds ?? 1,
+        })))
       if ('exerciseName' in patch) {
         getExerciseNames(user.id).then(setNames)
       }
@@ -323,8 +398,8 @@ export default function WorkoutDayPage() {
 
   // ── COMPLEX HANDLERS ─────────────────────────────────────────────────────────
 
-  // Add a new complex to the day
-  const handleAddComplex = useCallback(async () => {
+  // Add a new complex to the day, optionally pre-filled from a complex you've done before
+  const handleAddComplex = useCallback(async (template = null) => {
     try {
       setSaving(true)
       const currentState = state
@@ -333,10 +408,17 @@ export default function WorkoutDayPage() {
         rounds: 0,  // starts at 0 — user increments as they complete rounds
         display_order: nextItemOrder(currentState),
       })
+      const newComplex = normComplex(cx)
+      if (template) {
+        const result = await applyComplexTemplate(user.id, cx.id, dayId, template)
+        newComplex.exercises = result.exercises.map(({ exercise, set }) =>
+          normExercise({ ...exercise, exercise_sets: [set] })
+        )
+      }
       setState(prev => ({
         ...prev,
         dayId,
-        complexes: [...prev.complexes, normComplex(cx)],
+        complexes: [...prev.complexes, newComplex],
       }))
     } catch (e) { console.error('Add complex:', e) }
     finally { setSaving(false) }
@@ -409,6 +491,18 @@ export default function WorkoutDayPage() {
 
   // Update an exercise inside a complex (name, weight, type, or its one set's reps/rounds)
   const handleUpdateComplexExercise = useCallback(async (complexId, exerciseId, patch) => {
+    const cx = state.complexes.find(c => c.id === complexId)
+    const ex = cx?.exercises.find(e => e.id === exerciseId)
+    if (!ex) return
+
+    // Same bodyweight default as standalone exercises, applied to the complex row's one set
+    let fullPatch = patch
+    let flipSet = null
+    if ('exerciseName' in patch && defaultsToBodyweight(patch.exerciseName) && ex.weightType !== 'bodyweight') {
+      fullPatch = { ...patch, weightType: 'bodyweight', weightKg: null }
+      if (ex.sets[0] && hasDefaultWeight(ex.sets[0])) flipSet = ex.sets[0]
+    }
+
     // Optimistic
     setState(prev => ({
       ...prev,
@@ -416,20 +510,25 @@ export default function WorkoutDayPage() {
         c.id === complexId
           ? {
               ...c,
-              exercises: c.exercises.map(ex =>
-                ex.id === exerciseId ? { ...ex, ...patch } : ex
+              exercises: c.exercises.map(e =>
+                e.id === exerciseId
+                  ? {
+                      ...e,
+                      ...fullPatch,
+                      sets: e.sets.map(s => flipSet && s.id === flipSet.id
+                        ? { ...s, weightKg: null, weightType: 'bodyweight' }
+                        : s),
+                    }
+                  : e
               ),
             }
           : c
       ),
     }))
     const dbFields = ['exerciseName', 'weightKg', 'weightType']
-    if (!dbFields.some(f => f in patch)) return
+    if (!dbFields.some(f => f in fullPatch)) return
     try {
-      const cx = state.complexes.find(c => c.id === complexId)
-      const ex = cx?.exercises.find(e => e.id === exerciseId)
-      if (!ex) return
-      const merged = { ...ex, ...patch }
+      const merged = { ...ex, ...fullPatch }
       await upsertExercise(user.id, state.dayId, {
         id:            exerciseId,
         exercise_name: merged.exerciseName,
@@ -438,6 +537,16 @@ export default function WorkoutDayPage() {
         display_order: merged.displayOrder,
         complex_id:    complexId,
       })
+      if (flipSet) {
+        await upsertSet(user.id, exerciseId, {
+          id:          flipSet.id,
+          set_number:  flipSet.setNumber ?? 1,
+          reps:        flipSet.reps,
+          weight_kg:   null,
+          weight_type: 'bodyweight',
+          rounds:      flipSet.rounds ?? 1,
+        })
+      }
       if ('exerciseName' in patch) {
         getExerciseNames(user.id).then(setNames)
       }
@@ -491,22 +600,9 @@ export default function WorkoutDayPage() {
             ? {
                 ...c,
                 // rounds intentionally untouched — templates carry structure + reps only
-                exercises: result.exercises.map(({ exercise, set }) => ({
-                  id:           exercise.id,
-                  exerciseName: exercise.exercise_name ?? '',
-                  weightKg:     exercise.weight_kg ?? 24,
-                  weightType:   exercise.weight_type ?? 'single',
-                  displayOrder: exercise.display_order ?? 0,
-                  complexId:    complexId,
-                  sets: [{
-                    id:         set.id,
-                    setNumber:  set.set_number,
-                    reps:       set.reps ?? null,
-                    weightKg:   set.weight_kg ?? null,
-                    weightType: set.weight_type ?? null,
-                    rounds:     set.rounds ?? 1,
-                  }],
-                })),
+                exercises: result.exercises.map(({ exercise, set }) =>
+                  normExercise({ ...exercise, exercise_sets: [set] })
+                ),
               }
             : c
         ),
@@ -616,6 +712,35 @@ export default function WorkoutDayPage() {
     } catch (e) { console.error(e) }
   }, [])
 
+  // ── SAVED WORKOUTS ──────────────────────────────────────────────────────────
+
+  // Link this day to a saved workout (creating it if the name is new)
+  const handleSaveTemplate = useCallback(async (name) => {
+    const dayIdToLink = state.dayId ?? await ensureDay(state)
+    const template = await saveDayAsTemplate(user.id, dayIdToLink, name)
+    setState(prev => ({ ...prev, dayId: dayIdToLink, templateId: template.id }))
+  }, [user, state, ensureDay])
+
+  // Build a saved workout into this day, then reload so everything reflects the DB
+  const handleLoadTemplate = useCallback(async (id) => {
+    setSaving(true)
+    try {
+      const dayIdToFill = state.dayId ?? await ensureDay(state)
+      await loadTemplateIntoDay(user.id, dayIdToFill, id, nextItemOrder(state))
+      await loadDay()
+    } finally {
+      setSaving(false)
+    }
+  }, [user, state, ensureDay, loadDay])
+
+  const handleUnlinkTemplate = useCallback(async () => {
+    if (!state.dayId) return
+    setState(prev => ({ ...prev, templateId: null }))
+    try {
+      await unlinkDayTemplate(state.dayId)
+    } catch (e) { console.error('Unlink template:', e) }
+  }, [state])
+
   // ── SUBMIT & DELETE ─────────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async () => {
@@ -658,16 +783,7 @@ export default function WorkoutDayPage() {
     try {
       setSaving(true)
       await deleteDay(state.dayId)
-      setState({
-        dayId: null,
-        date,
-        dayType: 'workout',
-        durationMinutes: null,
-        notes: '',
-        submitted: false,
-        exercises: [],
-        complexes: [],
-      })
+      setState(emptyDay(date))
     } catch (e) { console.error(e) }
     finally { setSaving(false) }
   }, [state, date])
@@ -744,6 +860,10 @@ export default function WorkoutDayPage() {
           onUpdateComplexSet={handleUpdateComplexSet}
           onDeleteComplexExercise={handleDeleteComplexExercise}
           onLoadComplexTemplate={handleLoadComplexTemplate}
+          templateInfo={templateInfo}
+          onSaveTemplate={handleSaveTemplate}
+          onLoadTemplate={handleLoadTemplate}
+          onUnlinkTemplate={handleUnlinkTemplate}
           onSubmit={handleSubmit}
           onDeleteDay={handleDeleteDay}
           onDateChange={handleDateChange}

@@ -18,7 +18,9 @@ It's designed around how people actually train: logging sets and reps as you go,
 - **Per-set weight & type** — each set carries its own weight (10–32 kg) and type (1× single / 2× double kettlebell). Mix weights within a single exercise — e.g. 5 sets at 2×24 kg, then bump to 2×28 kg mid-exercise, and it's all tracked separately.
 - **Bodyweight & weight vest** — bodyweight exercises (pushups, pullups) log as reps only. The weight vest is its own option in the weight picker: plain rep counts, no 1×/2× toggle, load counted as `reps × 10`. Plain 10 kg stays a normal weight (dumbbells) and keeps the 1×/2× choice.
 - **Rounds multiplier** — instead of logging "10 pushups" five times, log 10 reps and bump the round counter as you complete each round. Great for greasing the groove.
-- **Complexes** — group several exercises that repeat together as a unit (e.g. 10 pushups → 10 long cycle → 6 hindu squats → 10 pushups = 1 round), then count rounds of the whole block. Save and reload complexes you've done before from a template picker.
+- **Complexes** — group several exercises that repeat together as a unit (e.g. 10 pushups → 10 long cycle → 6 hindu squats → 10 pushups = 1 round), then count rounds of the whole block. "Add Complex" opens a searchable list of every complex you've done, so you can start from one instead of rebuilding it.
+- **Saved workouts** — save a day under a name and load it again later. Grey target reps come from your best session of that workout, sets turn green when you match them, and the session summary shows your gain or drop per exercise against that best session.
+- **Bodyweight defaults** — pullups, pushups and crunches start as bodyweight automatically.
 - **Copy a previous workout** to today with one tap — exercises, complexes, weights, and structure all reproduced.
 - **Workout notes & duration** — free-text notes (auto-saved as you type) and optional session duration. Skip the duration on greasing-the-groove days and it won't skew your averages.
 - **Reorderable** — drag exercises and complexes up/down to match your session order.
@@ -32,7 +34,7 @@ It's designed around how people actually train: logging sets and reps as you go,
 ### Analytics
 - **Volume tracking (Day / Week / Month)** — total reps and total *load* (reps × weight) per exercise and per weight bucket, so lifting heavier for fewer reps still reads as progress. Compared against your personal best for that period, with sparklines and a 12-period bar chart.
 - **Personal bests** — tracked per (exercise, weight type, weight) so 1×24 kg and 2×24 kg keep separate records. Shown inline while logging.
-- **Exercise history** — full per-exercise breakdown of every session, weights, and PBs.
+- **Exercise history** — full per-exercise breakdown of every session, weights, and PBs, plus a Complexes view to browse each complex's sessions and best result.
 - **Exercise catalog** — every exercise you've logged, sortable A–Z / Z–A / by volume, with inline rename (updates all history) and delete.
 - **Workout feed** — reverse-chronological log of every submitted session with infinite scroll.
 - **Workout suggestions** — a "Suggest" tab picks your next session from a pool you choose, prioritizing exercises you've done least in the last 30 days. Re-roll for a different combination.
@@ -116,7 +118,8 @@ supabase-schema.sql  — full database schema; run in the Supabase SQL editor
 
 ### Data model
 
-- `workout_days` — one row per calendar day (type, duration, notes, submitted flag)
+- `workout_days` — one row per calendar day (type, duration, notes, submitted flag, optional saved workout)
+- `workout_templates` — named saved workouts; their sessions are the days linked to them
 - `workout_exercises` — exercises within a day; may belong to a complex
 - `workout_complexes` — a group of exercises with a shared rounds multiplier
 - `exercise_sets` — individual sets (reps, per-set weight/type, rounds)

@@ -1,7 +1,8 @@
-import { Trophy, Clock } from 'lucide-react'
+import { Trophy, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { weightLabelFor, repsAreParSide } from '../../lib/utils'
+import { exerciseTotalsForState, exerciseTotalsForSession } from '../../lib/workoutTemplates'
 
-export default function WorkoutSummary({ exercises, complexes = [], durationMinutes }) {
+export default function WorkoutSummary({ exercises, complexes = [], durationMinutes, templateInfo }) {
   const hasWork = (exercises && exercises.length > 0) || (complexes && complexes.length > 0)
   if (!hasWork) return null
 
@@ -96,6 +97,68 @@ export default function WorkoutSummary({ exercises, complexes = [], durationMinu
           </span>
         </div>
       )}
+
+      {templateInfo?.best && (
+        <BestComparison
+          name={templateInfo.name}
+          best={templateInfo.best}
+          exercises={exercises}
+          complexes={complexes}
+        />
+      )}
+    </div>
+  )
+}
+
+// Per-exercise total reps today vs the saved workout's best session (the same
+// session the grey targets came from), plus the workout total.
+function BestComparison({ name, best, exercises, complexes }) {
+  const today = exerciseTotalsForState(exercises, complexes)
+  const previous = exerciseTotalsForSession(best)
+
+  const keys = [...new Set([...previous.keys(), ...today.keys()])]
+  const rows = keys
+    .map(k => ({
+      name: today.get(k)?.name ?? previous.get(k)?.name,
+      now: today.get(k)?.reps ?? 0,
+      before: previous.get(k)?.reps ?? 0,
+    }))
+    .filter(r => r.now > 0 || r.before > 0)
+
+  const totalNow = rows.reduce((a, r) => a + r.now, 0)
+  const totalBefore = rows.reduce((a, r) => a + r.before, 0)
+
+  return (
+    <div className="pt-3 border-t border-gray-700 space-y-2">
+      <p className="text-[10px] text-gray-500 uppercase tracking-wider">
+        vs best “{name}” ({best.date})
+      </p>
+      {rows.map((r, i) => (
+        <DeltaRow key={i} label={r.name} now={r.now} before={r.before} />
+      ))}
+      <div className="pt-2 border-t border-gray-700/60">
+        <DeltaRow label="Total" now={totalNow} before={totalBefore} bold />
+      </div>
+    </div>
+  )
+}
+
+function DeltaRow({ label, now, before, bold = false }) {
+  const diff = now - before
+  const pct = before > 0 ? Math.round((diff / before) * 100) : null
+  const Icon = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
+  const tone = diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-gray-500'
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className={`text-sm truncate ${bold ? 'text-gray-100 font-semibold' : 'text-gray-300'}`}>{label}</span>
+      <span className="flex items-center gap-2 whitespace-nowrap tabular-nums">
+        <span className={`text-sm ${bold ? 'text-gray-100 font-semibold' : 'text-gray-100'}`}>{now}</span>
+        <span className="text-[11px] text-gray-500">/ {before}</span>
+        <span className={`text-[11px] flex items-center gap-0.5 min-w-[4.5rem] justify-end ${tone}`}>
+          <Icon size={11} />
+          {diff > 0 ? '+' : ''}{diff}{pct != null ? ` (${pct > 0 ? '+' : ''}${pct}%)` : ''}
+        </span>
+      </span>
     </div>
   )
 }

@@ -24,6 +24,20 @@ CREATE TABLE IF NOT EXISTS workout_days (
   UNIQUE(user_id, date)
 );
 
+-- Saved workouts: a named routine. Its sessions are the workout_days linked via template_id;
+-- structure, grey target reps and weights are derived from those sessions.
+CREATE TABLE IF NOT EXISTS workout_templates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users NOT NULL,
+  name text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE workout_days ADD COLUMN IF NOT EXISTS submitted boolean DEFAULT false;
+-- Deleting a saved workout keeps its sessions; they just become unlinked.
+ALTER TABLE workout_days ADD COLUMN IF NOT EXISTS template_id uuid
+  REFERENCES workout_templates(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS workout_exercises (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workout_day_id uuid NOT NULL,
@@ -137,6 +151,9 @@ CREATE INDEX IF NOT EXISTS idx_workout_complexes_day
 CREATE INDEX IF NOT EXISTS idx_workout_exercises_complex
   ON workout_exercises(complex_id);
 
+CREATE INDEX IF NOT EXISTS idx_workout_days_template
+  ON workout_days(template_id);
+
 -- ROW LEVEL SECURITY
 
 ALTER TABLE user_settings      ENABLE ROW LEVEL SECURITY;
@@ -144,6 +161,14 @@ ALTER TABLE workout_days       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workout_exercises  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE exercise_sets      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workout_complexes  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workout_templates  ENABLE ROW LEVEL SECURITY;
+
+-- workout_templates
+DROP POLICY IF EXISTS "own templates" ON workout_templates;
+CREATE POLICY "own templates" ON workout_templates
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- workout_complexes
 DROP POLICY IF EXISTS "own complexes" ON workout_complexes;

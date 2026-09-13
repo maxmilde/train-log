@@ -6,6 +6,7 @@ import WorkoutFeed from '../components/progress/WorkoutFeed'
 import ExerciseCatalog from '../components/progress/ExerciseCatalog'
 import WorkoutSuggest from '../components/progress/WorkoutSuggest'
 import VolumeAnalytics from '../components/progress/VolumeAnalytics'
+import ComplexLibrary from '../components/progress/ComplexLibrary'
 
 const VIEWS = [
   { id: 'volume',   label: 'Volume' },
@@ -19,6 +20,7 @@ export default function LibraryPage() {
   const { user } = useAuth()
 
   const [activeView, setActiveView]       = useState('volume')
+  const [exerciseMode, setExerciseMode]   = useState('exercises') // 'exercises' | 'complexes'
   const [exerciseNames, setExerciseNames] = useState([])
   const [selectedEx, setSelectedEx]       = useState('')
   const [exHistory, setExHistory]         = useState([])
@@ -85,12 +87,36 @@ export default function LibraryPage() {
         )}
 
         {activeView === 'exercise' && (
-          <ExerciseHistory
-            names={exerciseNames}
-            selected={selectedEx}
-            onSelect={setSelectedEx}
-            history={exHistory}
-          />
+          <div className="space-y-4">
+            <div className="flex bg-gray-800 rounded-lg p-1 gap-1">
+              {[
+                { id: 'exercises', label: 'Exercises' },
+                { id: 'complexes', label: 'Complexes' },
+              ].map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setExerciseMode(m.id)}
+                  className={`flex-1 py-2 rounded-md text-xs font-medium transition-colors
+                    ${exerciseMode === m.id
+                      ? 'bg-green-600 text-white'
+                      : 'text-gray-400 active:text-gray-200'}`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {exerciseMode === 'exercises' ? (
+              <ExerciseHistory
+                names={exerciseNames}
+                selected={selectedEx}
+                onSelect={setSelectedEx}
+                history={exHistory}
+              />
+            ) : (
+              <ComplexLibrary />
+            )}
+          </div>
         )}
 
         {activeView === 'feed' && (

@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 export default function ExerciseRow({
   exercise,
   exerciseNames,
+  ghostReps,            // grey target reps per set from a saved workout's best session
   showReorder = false,
   canMoveUp = false,
   canMoveDown = false,
@@ -96,6 +97,7 @@ export default function ExerciseRow({
               key={set.id || idx}
               set={set}
               setNumber={idx + 1}
+              ghostReps={ghostReps?.[idx]}
               exerciseWeightType={exercise.weightType}
               exerciseWeightKg={exercise.weightKg}
               onUpdate={patch => onUpdateSet(set.id, patch)}

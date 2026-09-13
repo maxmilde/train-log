@@ -132,7 +132,8 @@ export default function WorkoutFeed() {
                   {totalExercises} exercise{totalExercises !== 1 ? 's' : ''}
                   {w.duration_minutes ? ` · ${w.duration_minutes} min` : ''}
                 </p>
-                {w.notes && (
+                {/* One-line preview only while collapsed; the full note shows when expanded */}
+                {w.notes && !isOpen && (
                   <p className="text-xs text-gray-400 mt-1 italic line-clamp-1">{w.notes}</p>
                 )}
               </div>

@@ -1,7 +1,11 @@
-import { Clock, Plus, Send, Trash2, CheckCircle, ChevronUp, ChevronDown, MessageSquare, Layers } from 'lucide-react'
+import { useState } from 'react'
+import { Clock, Plus, Send, Trash2, CheckCircle, MessageSquare, Layers } from 'lucide-react'
 import ExerciseRow from './ExerciseRow'
 import ComplexRow from './ComplexRow'
+import ComplexPicker from './ComplexPicker'
 import WorkoutSummary from './WorkoutSummary'
+import WorkoutTemplateBar from './WorkoutTemplateBar'
+import { nameKey, complexSignature } from '../../lib/workoutTemplates'
 
 const DAY_TYPES = [
   { value: 'workout',     label: 'Workout' },
@@ -28,12 +32,18 @@ export default function DayLog({
   onUpdateComplexSet,
   onDeleteComplexExercise,
   onLoadComplexTemplate,
+  templateInfo,
+  onSaveTemplate,
+  onLoadTemplate,
+  onUnlinkTemplate,
   onSubmit,
   onDeleteDay,
   onDateChange,
   onMoveItem,
 }) {
   const { date, dayType, durationMinutes, notes, exercises, complexes = [], submitted } = state
+  const [showComplexPicker, setShowComplexPicker] = useState(false)
+  const ghosts = templateInfo?.ghosts
 
   const dateObj = new Date(date + 'T00:00:00')
   const dateLabel = dateObj.toLocaleDateString('en-GB', {
@@ -55,6 +65,27 @@ export default function DayLog({
     ...exercises.map(ex => ({ kind: 'exercise', item: ex, sortKey: ex.displayOrder ?? 0 })),
     ...complexes.map(cx => ({ kind: 'complex', item: cx, sortKey: cx.displayOrder ?? 0 })),
   ].sort((a, b) => a.sortKey - b.sortKey)
+
+  // Grey targets from the saved workout's best session, matched by exercise name +
+  // occurrence (and complex structure + occurrence), so reordering doesn't break them.
+  const seenEx = new Map()
+  const seenCx = new Map()
+  const ghostFor = ({ kind, item }) => {
+    if (!ghosts) return undefined
+    if (kind === 'exercise') {
+      const base = nameKey(item.exerciseName)
+      const n = seenEx.get(base) ?? 0
+      seenEx.set(base, n + 1)
+      return ghosts.exerciseSets.get(`${base}#${n}`)
+    }
+    const sig = complexSignature(item.exercises.map(e => e.exerciseName))
+    const n = seenCx.get(sig) ?? 0
+    seenCx.set(sig, n + 1)
+    return ghosts.complexRounds.get(`${sig}#${n}`)
+  }
+  const itemGhosts = orderedItems.map(ghostFor)
+
+  const hasContent = exercises.length > 0 || complexes.length > 0
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
@@ -112,6 +143,18 @@ export default function DayLog({
         ))}
       </div>
 
+      {/* Saved workouts: load one, save this day, or show which one you're chasing */}
+      {canLogExercises && (
+        <WorkoutTemplateBar
+          templateId={state.templateId}
+          templateInfo={templateInfo}
+          hasContent={hasContent}
+          onSave={onSaveTemplate}
+          onLoad={onLoadTemplate}
+          onUnlink={onUnlinkTemplate}
+        />
+      )}
+
       {/* Exercise + Complex list — for workout AND active rest */}
       {canLogExercises && (
         <div className="space-y-3">
@@ -127,6 +170,7 @@ export default function DayLog({
                   key={`ex-${ex.id}`}
                   exercise={ex}
                   exerciseNames={exerciseNames}
+                  ghostReps={itemGhosts[index]}
                   showReorder={showReorder}
                   canMoveUp={canMoveUp}
                   canMoveDown={canMoveDown}
@@ -146,6 +190,7 @@ export default function DayLog({
                 key={`cx-${cx.id}`}
                 complex={cx}
                 exerciseNames={exerciseNames}
+                ghostRounds={itemGhosts[index]}
                 showReorder={showReorder}
                 canMoveUp={canMoveUp}
                 canMoveDown={canMoveDown}
@@ -178,7 +223,7 @@ export default function DayLog({
             </button>
             <button
               type="button"
-              onClick={onAddComplex}
+              onClick={() => setShowComplexPicker(true)}
               className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
                          text-gray-500 text-sm font-medium
                          ${accentBorder}
@@ -189,6 +234,18 @@ export default function DayLog({
               Add Complex
             </button>
           </div>
+
+          {showComplexPicker && (
+            <ComplexPicker
+              title="Add a complex"
+              allowEmpty
+              onPick={template => {
+                setShowComplexPicker(false)
+                onAddComplex(template)
+              }}
+              onClose={() => setShowComplexPicker(false)}
+            />
+          )}
         </div>
       )}
 
@@ -280,7 +337,12 @@ export default function DayLog({
 
       {/* Post-submission summary */}
       {submitted && canLogExercises && (exercises.length > 0 || complexes.length > 0) && (
-        <WorkoutSummary exercises={exercises} complexes={complexes} durationMinutes={durationMinutes} />
+        <WorkoutSummary
+          exercises={exercises}
+          complexes={complexes}
+          durationMinutes={durationMinutes}
+          templateInfo={templateInfo}
+        />
       )}
     </div>
   )

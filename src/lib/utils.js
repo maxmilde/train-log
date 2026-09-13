@@ -24,6 +24,14 @@ export const VEST_WEIGHT_KG = 10
 export function isVestType(weightType) {
   return weightType === 'vest'
 }
+// Exercises that default to bodyweight when named. Matching ignores case, spaces,
+// hyphens and a trailing plural "s", so "Pull-ups", "push ups" and "Crunch" all match.
+const BW_DEFAULT_EXERCISES = new Set(['pullup', 'pushup', 'crunch'])
+export function defaultsToBodyweight(exerciseName) {
+  const key = (exerciseName ?? '').toLowerCase().replace(/[^a-z]/g, '').replace(/e?s$/, '')
+  return BW_DEFAULT_EXERCISES.has(key)
+}
+
 // Label for any (weight_type, weight_kg) pair.
 export function weightLabelFor(weightType, weightKg) {
   if (weightType === 'bodyweight' || weightKg == null) return 'BW'
