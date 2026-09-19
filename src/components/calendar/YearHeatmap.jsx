@@ -1,13 +1,11 @@
 import { useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { buildHeatmapGrid, buildMonthLabels, toDateStr } from '../../lib/utils'
+import {
+  buildHeatmapGrid, buildMonthLabels, toDateStr,
+  DIFFICULTIES, UNRATED_BG, difficultyFor, dayDifficulty, isWorkoutDay,
+} from '../../lib/utils'
 
-const DAY_COLOR = {
-  workout:     'bg-green-500',
-  active_rest: 'bg-blue-500',
-  rest:        'bg-gray-700',
-  empty:       'bg-transparent',
-}
+const REST_BG = 'bg-gray-700'
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
@@ -30,12 +28,13 @@ export default function YearHeatmap({ year, dayMap }) {
     container.scrollLeft = Math.max(0, target)
   }, [year])
 
-  // Only submitted days show color; unsubmitted past days = rest (gray)
-  function getDayType(dateStr, isCurrentYear) {
-    if (!isCurrentYear) return 'empty'
+  // Only submitted workouts show colour: their difficulty, or green if unrated.
+  // Everything else in the year is rest (gray).
+  function getDayColor(dateStr, isCurrentYear) {
+    if (!isCurrentYear) return 'bg-transparent'
     const day = dayMap.get(dateStr)
-    if (!day || !day.submitted) return 'rest'
-    return day.day_type
+    if (!day || !day.submitted || !isWorkoutDay(day)) return REST_BG
+    return difficultyFor(dayDifficulty(day))?.bg ?? UNRATED_BG
   }
 
   return (
@@ -74,7 +73,7 @@ export default function YearHeatmap({ year, dayMap }) {
                 className="flex flex-col gap-[2px] mr-[2px]"
               >
                 {week.map(({ dateStr, isCurrentYear }) => {
-                  const type = getDayType(dateStr, isCurrentYear)
+                  const color = getDayColor(dateStr, isCurrentYear)
                   const isToday = dateStr === today
 
                   return (
@@ -85,7 +84,7 @@ export default function YearHeatmap({ year, dayMap }) {
                       title={isCurrentYear ? dateStr : ''}
                       className={`
                         h-[11px] w-[11px] rounded-[2px] p-0 border-0
-                        ${DAY_COLOR[type]}
+                        ${color}
                         ${isToday ? 'ring-1 ring-white ring-offset-[1px] ring-offset-gray-900' : ''}
                         ${isCurrentYear ? 'cursor-pointer hover:opacity-80 active:opacity-60' : 'cursor-default'}
                         transition-opacity
@@ -101,10 +100,12 @@ export default function YearHeatmap({ year, dayMap }) {
       </div>
 
       {/* Legend */}
-      <div className="flex gap-4 mt-3 text-xs text-gray-500">
-        <LegendItem color="bg-green-500" label="Workout" />
-        <LegendItem color="bg-blue-500"  label="Active rest" />
-        <LegendItem color="bg-gray-700"  label="Rest" />
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-xs text-gray-500">
+        {DIFFICULTIES.map(d => (
+          <LegendItem key={d.value} color={d.bg} label={d.label} />
+        ))}
+        <LegendItem color={UNRATED_BG} label="Unrated" />
+        <LegendItem color={REST_BG} label="Rest" />
       </div>
     </section>
   )

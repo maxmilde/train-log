@@ -23,6 +23,7 @@ It's designed around how people actually train: logging sets and reps as you go,
 - **Bodyweight defaults** — pullups, pushups and crunches start as bodyweight automatically.
 - **Copy a previous workout** to today with one tap — exercises, complexes, weights, and structure all reproduced.
 - **Workout notes & duration** — free-text notes (auto-saved as you type) and optional session duration. Skip the duration on greasing-the-groove days and it won't skew your averages.
+- **Difficulty rating** — rate each workout Easy, Moderate, Hard or Brutal at the end. The rating colours the heatmap, the week dots and the feed.
 - **Reorderable** — drag exercises and complexes up/down to match your session order.
 
 ### Timer
@@ -40,7 +41,7 @@ It's designed around how people actually train: logging sets and reps as you go,
 - **Workout suggestions** — a "Suggest" tab picks your next session from a pool you choose, prioritizing exercises you've done least in the last 30 days. Re-roll for a different combination.
 
 ### Dashboard
-- **Year heatmap** — GitHub-style grid: green (workout), dark green (active rest), grey (rest).
+- **Year heatmap** — GitHub-style grid, centred on the current week. Each workout is coloured by how hard it was, from pale yellow (Easy) through orange and red to dark red (Brutal); grey is rest.
 - **Goal tracking** — weekly target with week / month / year progress and an on-track indicator.
 - **This-week volume teaser** + duration and monthly-count charts.
 

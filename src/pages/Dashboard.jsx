@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { BarChart2, Trophy, ChevronRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDaysForYear, getSettings, upsertSettings, getVolumeAnalytics } from '../lib/db'
-import { calcGoalStats } from '../lib/utils'
+import { calcGoalStats, isWorkoutDay } from '../lib/utils'
 import YearHeatmap from '../components/calendar/YearHeatmap'
 import GoalTracker from '../components/dashboard/GoalTracker'
 import DurationChart from '../components/dashboard/DurationChart'
@@ -51,7 +51,7 @@ export default function DashboardPage() {
   }
 
   // Aggregate totals for the Duration section
-  const workoutsWithDuration = yearDays.filter(d => d.day_type === 'workout' && d.duration_minutes)
+  const workoutsWithDuration = yearDays.filter(d => isWorkoutDay(d) && d.duration_minutes)
   const totalMins = workoutsWithDuration.reduce((a, d) => a + d.duration_minutes, 0)
   const avgMin = workoutsWithDuration.length > 0
     ? Math.round(totalMins / workoutsWithDuration.length)

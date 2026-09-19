@@ -24,6 +24,31 @@ export const VEST_WEIGHT_KG = 10
 export function isVestType(weightType) {
   return weightType === 'vest'
 }
+// ── WORKOUT DIFFICULTY ─────────────────────────────────────────────────────────
+// Rated at the end of a workout. Heat gradient: lighter = easier.
+// Class names are written out in full so Tailwind keeps them in the build.
+export const DIFFICULTIES = [
+  { value: 1, label: 'Easy',     bg: 'bg-yellow-200', onBg: 'text-gray-900' },
+  { value: 2, label: 'Moderate', bg: 'bg-orange-400', onBg: 'text-gray-900' },
+  { value: 3, label: 'Hard',     bg: 'bg-red-500',    onBg: 'text-white' },
+  { value: 4, label: 'Brutal',   bg: 'bg-red-800',    onBg: 'text-white' },
+]
+// Colour for a submitted workout nobody has rated yet
+export const UNRATED_BG = 'bg-green-500'
+
+export function difficultyFor(value) {
+  return DIFFICULTIES.find(d => d.value === value) ?? null
+}
+
+// Active Rest was retired; any day still stored as 'active_rest' is an Easy workout.
+export function isWorkoutDay(day) {
+  return day?.day_type === 'workout' || day?.day_type === 'active_rest'
+}
+export function dayDifficulty(day) {
+  if (day?.difficulty) return day.difficulty
+  return day?.day_type === 'active_rest' ? 1 : null
+}
+
 // Exercises that default to bodyweight when named. Matching ignores case, spaces,
 // hyphens and a trailing plural "s", so "Pull-ups", "push ups" and "Crunch" all match.
 const BW_DEFAULT_EXERCISES = new Set(['pullup', 'pushup', 'crunch'])
@@ -86,30 +111,26 @@ export function buildMonthLabels(year) {
 /**
  * Calculate goal stats for the dashboard.
  * Only submitted workouts count toward goals.
- * Active rest days are tracked separately.
  */
 export function calcGoalStats(days, weeklyGoal, now = new Date()) {
-  // Only submitted workouts count for the goal
-  const workoutSet = new Set(
-    days.filter(d => d.day_type === 'workout' && d.submitted).map(d => d.date)
-  )
-  // Active rest days (submitted)
-  const activeRestSet = new Set(
-    days.filter(d => d.day_type === 'active_rest' && d.submitted).map(d => d.date)
+  // Only submitted workouts count for the goal. Legacy active-rest days count too:
+  // they are Easy workouts now (the migration converts them).
+  const workoutDays = new Map(
+    days.filter(d => isWorkoutDay(d) && d.submitted).map(d => [d.date, d])
   )
 
   // THIS WEEK
   const weekStart = startOfWeek(now, { weekStartsOn: 1 })
   const weekEnd   = endOfWeek(now, { weekStartsOn: 1 })
   const weekDays  = eachDayOfInterval({ start: weekStart, end: weekEnd })
-  const weekDone  = weekDays.filter(d => workoutSet.has(toDateStr(d))).length
-  const weekActiveRest = weekDays.filter(d => activeRestSet.has(toDateStr(d))).length
+  const weekDone  = weekDays.filter(d => workoutDays.has(toDateStr(d))).length
   const weekLabels = weekDays.map(d => {
     const ds = toDateStr(d)
+    const day = workoutDays.get(ds)
     return {
       label: format(d, 'EEE'),
-      done: workoutSet.has(ds),
-      activeRest: activeRestSet.has(ds),
+      done: !!day,
+      difficulty: day ? dayDifficulty(day) : null,
       isFuture: d > now,
       dateStr: ds,
     }
@@ -120,8 +141,7 @@ export function calcGoalStats(days, weeklyGoal, now = new Date()) {
   const monthEnd   = endOfMonth(now)
   const monthDays  = eachDayOfInterval({ start: monthStart, end: monthEnd })
   const monthGoal  = Math.round((monthDays.length / 7) * weeklyGoal)
-  const monthDone  = monthDays.filter(d => workoutSet.has(toDateStr(d))).length
-  const monthActiveRest = monthDays.filter(d => activeRestSet.has(toDateStr(d))).length
+  const monthDone  = monthDays.filter(d => workoutDays.has(toDateStr(d))).length
 
   // THIS YEAR
   const yearStart  = startOfYear(now)
@@ -129,8 +149,7 @@ export function calcGoalStats(days, weeklyGoal, now = new Date()) {
   const yearAllDays = eachDayOfInterval({ start: yearStart, end: yearEnd })
   const weeksInYear = Math.ceil(yearAllDays.length / 7)
   const yearGoal   = weeksInYear * weeklyGoal
-  const yearDone   = yearAllDays.filter(d => workoutSet.has(toDateStr(d))).length
-  const yearActiveRest = yearAllDays.filter(d => activeRestSet.has(toDateStr(d))).length
+  const yearDone   = yearAllDays.filter(d => workoutDays.has(toDateStr(d))).length
 
   // ON TRACK? — proportional to how far we are through the year
   const dayOfYear = Math.floor((now - yearStart) / 86400000) + 1
@@ -138,9 +157,9 @@ export function calcGoalStats(days, weeklyGoal, now = new Date()) {
   const track     = yearDone >= expected ? 'ahead' : yearDone < expected ? 'behind' : 'on-track'
 
   return {
-    week:  { done: weekDone, goal: weeklyGoal, labels: weekLabels, activeRest: weekActiveRest },
-    month: { done: monthDone, goal: monthGoal, activeRest: monthActiveRest },
-    year:  { done: yearDone, goal: yearGoal, expected, track, activeRest: yearActiveRest },
+    week:  { done: weekDone, goal: weeklyGoal, labels: weekLabels },
+    month: { done: monthDone, goal: monthGoal },
+    year:  { done: yearDone, goal: yearGoal, expected, track },
   }
 }
 
@@ -226,10 +245,9 @@ export function formatPB(pb) {
 
   // New format: max volume + max set + weight
   if (pb.maxTotalReps !== undefined) {
-    const maxSetStr = isSingle
-      ? `${pb.maxSingleSetReps}/${pb.maxSingleSetReps}`
-      : `${pb.maxSingleSetReps}`
-    return `Vol: ${pb.maxTotalReps} reps \u00b7 Best set: ${maxSetStr}${weightStr}`
+    // Singles are per side, so both volume and best set read "32/32"; doubles stay "32"
+    const perSide = (n) => (isSingle ? `${n}/${n}` : `${n}`)
+    return `Vol: ${perSide(pb.maxTotalReps)} reps \u00b7 Best set: ${perSide(pb.maxSingleSetReps)}${weightStr}`
   }
 
   // Legacy fallback
@@ -263,7 +281,7 @@ export function timeStrToSeconds(str) {
 }
 
 export function buildWeeklyDuration(days) {
-  const workoutDays = days.filter(d => (d.day_type === 'workout' || d.day_type === 'active_rest') && d.submitted && d.duration_minutes)
+  const workoutDays = days.filter(d => isWorkoutDay(d) && d.submitted && d.duration_minutes)
   const weekMap = {}
   workoutDays.forEach(d => {
     const date = parseDateStr(d.date)
@@ -277,7 +295,7 @@ export function buildWeeklyDuration(days) {
 export function buildMonthlyCount(days, year) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const counts = Array(12).fill(0)
-  days.filter(d => d.day_type === 'workout' && d.submitted).forEach(d => {
+  days.filter(d => isWorkoutDay(d) && d.submitted).forEach(d => {
     const month = parseInt(d.date.split('-')[1], 10) - 1
     counts[month]++
   })

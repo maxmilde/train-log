@@ -77,9 +77,10 @@ export async function getDayFull(userId, date) {
   }
 }
 
-export async function upsertDay(userId, { date, day_type, duration_minutes, notes, submitted }) {
+export async function upsertDay(userId, { date, day_type, duration_minutes, notes, submitted, difficulty }) {
   const payload = { user_id: userId, date, day_type, duration_minutes, notes }
   if (submitted !== undefined) payload.submitted = submitted
+  if (difficulty !== undefined) payload.difficulty = difficulty   // 1–4, or null to clear
   const { data, error } = await supabase
     .from('workout_days')
     .upsert(payload, { onConflict: 'user_id,date' })

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getWorkoutFeed, copyWorkoutToDate } from '../../lib/db'
-import { toDateStr, weightLabelFor } from '../../lib/utils'
+import { toDateStr, weightLabelFor, isWorkoutDay, dayDifficulty, difficultyFor } from '../../lib/utils'
 import { ChevronDown, ChevronUp, Copy } from 'lucide-react'
 
 const PAGE_SIZE = 20
@@ -108,7 +108,8 @@ export default function WorkoutFeed() {
           weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
         })
         const totalExercises = exercises.length + complexes.length
-        const isWorkout = w.day_type === 'workout'
+        const isWorkout = isWorkoutDay(w)
+        const diff = difficultyFor(dayDifficulty(w))
 
         return (
           <button
@@ -122,10 +123,11 @@ export default function WorkoutFeed() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-gray-100">{dateLabel}</p>
+                  {/* Difficulty badge in the same colour as the heatmap; unrated shows 'Workout' */}
                   <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                    isWorkout ? 'bg-green-900/50 text-green-400' : 'bg-blue-900/50 text-blue-400'
+                    diff ? `${diff.bg} ${diff.onBg}` : 'bg-green-900/50 text-green-400'
                   }`}>
-                    {isWorkout ? 'Workout' : 'Active Rest'}
+                    {diff ? diff.label : 'Workout'}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">

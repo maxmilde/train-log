@@ -86,7 +86,7 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
               <p className="text-blue-300 text-xs font-semibold">{weightLabel(pb)}</p>
               <div className="flex justify-between items-baseline">
                 <p className="text-blue-200 text-sm">
-                  Max volume: <span className="font-bold">{pb.maxTotal} reps</span>
+                  Max volume: <span className="font-bold">{repsLabel(pb.maxTotal, pb.weight_type)} reps</span>
                 </p>
                 <p className="text-blue-700 text-[10px]">{pb.totalDate}</p>
               </div>

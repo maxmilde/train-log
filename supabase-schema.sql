@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS workout_templates (
 );
 
 ALTER TABLE workout_days ADD COLUMN IF NOT EXISTS submitted boolean DEFAULT false;
+-- Workout difficulty rated at the end: 1 Easy, 2 Moderate, 3 Hard, 4 Brutal (null = unrated)
+ALTER TABLE workout_days ADD COLUMN IF NOT EXISTS difficulty smallint
+  CHECK (difficulty BETWEEN 1 AND 4);
+-- Active Rest was retired in favour of difficulty: existing active-rest days become Easy workouts
+UPDATE workout_days SET day_type = 'workout', difficulty = COALESCE(difficulty, 1)
+  WHERE day_type = 'active_rest';
 -- Deleting a saved workout keeps its sessions; they just become unlinked.
 ALTER TABLE workout_days ADD COLUMN IF NOT EXISTS template_id uuid
   REFERENCES workout_templates(id) ON DELETE SET NULL;

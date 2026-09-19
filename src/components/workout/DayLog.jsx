@@ -6,16 +6,12 @@ import ComplexPicker from './ComplexPicker'
 import WorkoutSummary from './WorkoutSummary'
 import WorkoutTemplateBar from './WorkoutTemplateBar'
 import { nameKey, complexSignature } from '../../lib/workoutTemplates'
-
-const DAY_TYPES = [
-  { value: 'workout',     label: 'Workout' },
-  { value: 'active_rest', label: 'Active Rest' },
-]
+import { DIFFICULTIES } from '../../lib/utils'
 
 export default function DayLog({
   state,
   exerciseNames,
-  onDayTypeChange,
+  onDifficultyChange,
   onDurationChange,
   onNotesChange,
   onAddExercise,
@@ -41,7 +37,7 @@ export default function DayLog({
   onDateChange,
   onMoveItem,
 }) {
-  const { date, dayType, durationMinutes, notes, exercises, complexes = [], submitted } = state
+  const { date, difficulty, durationMinutes, notes, exercises, complexes = [], submitted } = state
   const [showComplexPicker, setShowComplexPicker] = useState(false)
   const ghosts = templateInfo?.ghosts
 
@@ -50,14 +46,7 @@ export default function DayLog({
     weekday: 'long', day: 'numeric', month: 'long'
   })
 
-  const canLogExercises = dayType === 'workout' || dayType === 'active_rest'
-  const isWorkout = dayType === 'workout'
-  const isActiveRest = dayType === 'active_rest'
-
-  const accentBg = isWorkout ? 'bg-green-600' : 'bg-blue-600'
-  const accentBorder = isWorkout
-    ? 'hover:border-green-600 hover:text-green-400'
-    : 'hover:border-blue-600 hover:text-blue-400'
+  const accentBorder = 'hover:border-green-600 hover:text-green-400'
 
   // Merged, ordered list of items (top-level exercises + complexes) so the
   // user's chosen order is preserved regardless of insertion type.
@@ -122,174 +111,172 @@ export default function DayLog({
         )}
       </div>
 
-      {/* Day type segmented control */}
-      <div className="flex rounded-xl overflow-hidden border border-gray-700">
-        {DAY_TYPES.map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => onDayTypeChange(value)}
-            className={`flex-1 py-3 text-sm font-medium transition-colors
-              ${dayType === value
-                ? value === 'workout'
-                  ? 'bg-green-600 text-white'
-                  : value === 'active_rest'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-700 text-gray-300'
-                : 'bg-gray-800 text-gray-500'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       {/* Saved workouts: load one, save this day, or show which one you're chasing */}
-      {canLogExercises && (
-        <WorkoutTemplateBar
-          templateId={state.templateId}
-          templateInfo={templateInfo}
-          hasContent={hasContent}
-          onSave={onSaveTemplate}
-          onLoad={onLoadTemplate}
-          onUnlink={onUnlinkTemplate}
-        />
-      )}
+      <WorkoutTemplateBar
+        templateId={state.templateId}
+        templateInfo={templateInfo}
+        hasContent={hasContent}
+        onSave={onSaveTemplate}
+        onLoad={onLoadTemplate}
+        onUnlink={onUnlinkTemplate}
+      />
 
-      {/* Exercise + Complex list — for workout AND active rest */}
-      {canLogExercises && (
-        <div className="space-y-3">
-          {orderedItems.map(({ kind, item }, index) => {
-            const canMoveUp = index > 0
-            const canMoveDown = index < orderedItems.length - 1
-            const showReorder = orderedItems.length > 1
+      {/* Exercise + Complex list */}
+      <div className="space-y-3">
+        {orderedItems.map(({ kind, item }, index) => {
+          const canMoveUp = index > 0
+          const canMoveDown = index < orderedItems.length - 1
+          const showReorder = orderedItems.length > 1
 
-            if (kind === 'exercise') {
-              const ex = item
-              return (
-                <ExerciseRow
-                  key={`ex-${ex.id}`}
-                  exercise={ex}
-                  exerciseNames={exerciseNames}
-                  ghostReps={itemGhosts[index]}
-                  showReorder={showReorder}
-                  canMoveUp={canMoveUp}
-                  canMoveDown={canMoveDown}
-                  onMoveUp={() => onMoveItem(index, index - 1)}
-                  onMoveDown={() => onMoveItem(index, index + 1)}
-                  onUpdate={patch => onUpdateExercise(ex.id, patch)}
-                  onDelete={() => onDeleteExercise(ex.id)}
-                  onAddSet={() => onAddSet(ex.id)}
-                  onUpdateSet={(setId, patch) => onUpdateSet(ex.id, setId, patch)}
-                  onDeleteSet={setId => onDeleteSet(ex.id, setId)}
-                />
-              )
-            }
-            const cx = item
+          if (kind === 'exercise') {
+            const ex = item
             return (
-              <ComplexRow
-                key={`cx-${cx.id}`}
-                complex={cx}
+              <ExerciseRow
+                key={`ex-${ex.id}`}
+                exercise={ex}
                 exerciseNames={exerciseNames}
-                ghostRounds={itemGhosts[index]}
+                ghostReps={itemGhosts[index]}
                 showReorder={showReorder}
                 canMoveUp={canMoveUp}
                 canMoveDown={canMoveDown}
                 onMoveUp={() => onMoveItem(index, index - 1)}
                 onMoveDown={() => onMoveItem(index, index + 1)}
-                onUpdate={patch => onUpdateComplex(cx.id, patch)}
-                onDelete={() => onDeleteComplex(cx.id)}
-                onAddExercise={() => onAddExerciseToComplex(cx.id)}
-                onUpdateExercise={(exId, patch) => onUpdateComplexExercise(cx.id, exId, patch)}
-                onUpdateSet={(exId, patch) => onUpdateComplexSet(cx.id, exId, patch)}
-                onDeleteExercise={exId => onDeleteComplexExercise(cx.id, exId)}
-                onLoadTemplate={template => onLoadComplexTemplate(cx.id, template)}
+                onUpdate={patch => onUpdateExercise(ex.id, patch)}
+                onDelete={() => onDeleteExercise(ex.id)}
+                onAddSet={() => onAddSet(ex.id)}
+                onUpdateSet={(setId, patch) => onUpdateSet(ex.id, setId, patch)}
+                onDeleteSet={setId => onDeleteSet(ex.id, setId)}
               />
             )
-          })}
-
-          {/* Add buttons row */}
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={onAddExercise}
-              className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
-                         text-gray-500 text-sm font-medium
-                         ${accentBorder}
-                         active:opacity-80
-                         transition-colors flex items-center justify-center gap-2`}
-            >
-              <Plus size={16} />
-              Add Exercise
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowComplexPicker(true)}
-              className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
-                         text-gray-500 text-sm font-medium
-                         ${accentBorder}
-                         active:opacity-80
-                         transition-colors flex items-center justify-center gap-2`}
-            >
-              <Layers size={16} />
-              Add Complex
-            </button>
-          </div>
-
-          {showComplexPicker && (
-            <ComplexPicker
-              title="Add a complex"
-              allowEmpty
-              onPick={template => {
-                setShowComplexPicker(false)
-                onAddComplex(template)
-              }}
-              onClose={() => setShowComplexPicker(false)}
+          }
+          const cx = item
+          return (
+            <ComplexRow
+              key={`cx-${cx.id}`}
+              complex={cx}
+              exerciseNames={exerciseNames}
+              ghostRounds={itemGhosts[index]}
+              showReorder={showReorder}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+              onMoveUp={() => onMoveItem(index, index - 1)}
+              onMoveDown={() => onMoveItem(index, index + 1)}
+              onUpdate={patch => onUpdateComplex(cx.id, patch)}
+              onDelete={() => onDeleteComplex(cx.id)}
+              onAddExercise={() => onAddExerciseToComplex(cx.id)}
+              onUpdateExercise={(exId, patch) => onUpdateComplexExercise(cx.id, exId, patch)}
+              onUpdateSet={(exId, patch) => onUpdateComplexSet(cx.id, exId, patch)}
+              onDeleteExercise={exId => onDeleteComplexExercise(cx.id, exId)}
+              onLoadTemplate={template => onLoadComplexTemplate(cx.id, template)}
             />
-          )}
+          )
+        })}
+
+        {/* Add buttons row */}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onAddExercise}
+            className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
+                       text-gray-500 text-sm font-medium
+                       ${accentBorder}
+                       active:opacity-80
+                       transition-colors flex items-center justify-center gap-2`}
+          >
+            <Plus size={16} />
+            Add Exercise
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowComplexPicker(true)}
+            className={`flex-1 py-4 rounded-2xl border-2 border-dashed border-gray-700
+                       text-gray-500 text-sm font-medium
+                       ${accentBorder}
+                       active:opacity-80
+                       transition-colors flex items-center justify-center gap-2`}
+          >
+            <Layers size={16} />
+            Add Complex
+          </button>
         </div>
-      )}
+
+        {showComplexPicker && (
+          <ComplexPicker
+            title="Add a complex"
+            allowEmpty
+            onPick={template => {
+              setShowComplexPicker(false)
+              onAddComplex(template)
+            }}
+            onClose={() => setShowComplexPicker(false)}
+          />
+        )}
+      </div>
 
       {/* Duration — at the bottom */}
-      {canLogExercises && (
-        <div className="pt-2">
-          <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
-            <Clock size={10} className="inline mr-1" />
-            Session duration
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              inputMode="numeric"
-              value={durationMinutes ?? ''}
-              onChange={e => onDurationChange(e.target.value === '' ? null : Number(e.target.value))}
-              placeholder=""
-              className="w-24 rounded-xl bg-gray-800 border border-gray-700
-                         px-4 py-3 text-xl text-gray-100 text-center min-h-[52px]
-                         focus:outline-none focus:border-green-500"
-            />
-            <span className="text-gray-500 text-sm">minutes</span>
-          </div>
+      <div className="pt-2">
+        <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
+          <Clock size={10} className="inline mr-1" />
+          Session duration
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            inputMode="numeric"
+            value={durationMinutes ?? ''}
+            onChange={e => onDurationChange(e.target.value === '' ? null : Number(e.target.value))}
+            placeholder=""
+            className="w-24 rounded-xl bg-gray-800 border border-gray-700
+                       px-4 py-3 text-xl text-gray-100 text-center min-h-[52px]
+                       focus:outline-none focus:border-green-500"
+          />
+          <span className="text-gray-500 text-sm">minutes</span>
         </div>
-      )}
+      </div>
 
       {/* Workout notes */}
-      {canLogExercises && (
-        <div className="pt-1">
-          <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
-            <MessageSquare size={10} className="inline mr-1" />
-            Notes
-          </label>
-          <textarea
-            value={notes ?? ''}
-            onChange={e => onNotesChange(e.target.value)}
-            placeholder="How did it go? Any observations..."
-            rows={2}
-            className="w-full rounded-xl bg-gray-800 border border-gray-700
-                       px-4 py-3 text-sm text-gray-100 placeholder-gray-600
-                       focus:outline-none focus:border-green-500 resize-none"
-          />
+      <div className="pt-1">
+        <label className="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">
+          <MessageSquare size={10} className="inline mr-1" />
+          Notes
+        </label>
+        <textarea
+          value={notes ?? ''}
+          onChange={e => onNotesChange(e.target.value)}
+          placeholder="How did it go? Any observations..."
+          rows={2}
+          className="w-full rounded-xl bg-gray-800 border border-gray-700
+                     px-4 py-3 text-sm text-gray-100 placeholder-gray-600
+                     focus:outline-none focus:border-green-500 resize-none"
+        />
+      </div>
+
+      {/* Difficulty — rated at the end, colours the heatmap */}
+      <div className="pt-1">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-1.5">How hard was it?</p>
+        <div className="grid grid-cols-4 gap-2">
+          {DIFFICULTIES.map(d => {
+            const selected = difficulty === d.value
+            return (
+              <button
+                key={d.value}
+                type="button"
+                onClick={() => onDifficultyChange(d.value)}
+                aria-pressed={selected}
+                className={`py-3 rounded-xl text-sm font-medium border transition-colors
+                  ${selected
+                    ? `${d.bg} ${d.onBg} border-transparent`
+                    : 'bg-gray-800 text-gray-400 border-gray-700 active:bg-gray-700'}`}
+              >
+                <span className="flex items-center justify-center gap-1.5">
+                  {!selected && <span className={`h-2 w-2 rounded-full ${d.bg}`} />}
+                  {d.label}
+                </span>
+              </button>
+            )
+          })}
         </div>
-      )}
+      </div>
 
       {/* Submit + Delete buttons */}
       <div className="pt-2 space-y-3">
@@ -297,12 +284,12 @@ export default function DayLog({
           <button
             type="button"
             onClick={onSubmit}
-            className={`w-full py-4 rounded-2xl ${accentBg} text-white font-semibold text-base
+            className="w-full py-4 rounded-2xl bg-green-600 text-white font-semibold text-base
                        flex items-center justify-center gap-2
-                       active:opacity-80 transition-all`}
+                       active:opacity-80 transition-all"
           >
             <Send size={16} />
-            Submit {isWorkout ? 'Workout' : isActiveRest ? 'Active Rest' : 'Day'}
+            Submit Workout
           </button>
         )}
 
@@ -336,7 +323,7 @@ export default function DayLog({
       </div>
 
       {/* Post-submission summary */}
-      {submitted && canLogExercises && (exercises.length > 0 || complexes.length > 0) && (
+      {submitted && hasContent && (
         <WorkoutSummary
           exercises={exercises}
           complexes={complexes}

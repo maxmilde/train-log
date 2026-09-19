@@ -21,7 +21,7 @@ import {
   unlinkDayTemplate,
   loadTemplateIntoDay,
 } from '../lib/db'
-import { toDateStr, defaultsToBodyweight } from '../lib/utils'
+import { toDateStr, defaultsToBodyweight, dayDifficulty } from '../lib/utils'
 import { pickBestSession, buildGhosts } from '../lib/workoutTemplates'
 import DayLog from '../components/workout/DayLog'
 
@@ -45,7 +45,9 @@ function normDay(day) {
   return {
     dayId:           day.id,
     date:            day.date,
-    dayType:         day.day_type ?? 'rest',
+    // Workout is the only day type now; difficulty replaced Active Rest
+    dayType:         'workout',
+    difficulty:      dayDifficulty(day),
     durationMinutes: day.duration_minutes ?? null,
     notes:           day.notes ?? '',
     submitted:       day.submitted ?? false,
@@ -56,7 +58,7 @@ function normDay(day) {
 }
 
 const emptyDay = (date) => ({
-  dayId: null, date, dayType: 'workout', durationMinutes: null, notes: '',
+  dayId: null, date, dayType: 'workout', difficulty: null, durationMinutes: null, notes: '',
   submitted: false, templateId: null, exercises: [], complexes: [],
 })
 
@@ -169,16 +171,21 @@ export default function WorkoutDayPage() {
 
   // ── HANDLERS ────────────────────────────────────────────────────────────────
 
-  const handleDayTypeChange = useCallback(async (dayType) => {
-    setState(prev => ({ ...prev, dayType }))
+  // Difficulty (1–4) saves immediately, so it can be set before or after submitting.
+  // Tapping the selected level again clears it.
+  const handleDifficultyChange = useCallback(async (value) => {
+    const next = state.difficulty === value ? null : value
+    setState(prev => ({ ...prev, difficulty: next }))
     try {
       setSaving(true)
-      await upsertDay(user.id, {
+      const day = await upsertDay(user.id, {
         date,
-        day_type: dayType,
-        duration_minutes: state?.durationMinutes ?? null,
+        day_type: 'workout',
+        duration_minutes: state.durationMinutes ?? null,
+        difficulty: next,
       })
-    } catch (e) { console.error(e) }
+      if (!state.dayId) setState(prev => ({ ...prev, dayId: day.id }))
+    } catch (e) { console.error('Save difficulty:', e) }
     finally { setSaving(false) }
   }, [user, date, state])
 
@@ -842,7 +849,7 @@ export default function WorkoutDayPage() {
         <DayLog
           state={state}
           exerciseNames={exerciseNames}
-          onDayTypeChange={handleDayTypeChange}
+          onDifficultyChange={handleDifficultyChange}
           onDurationChange={handleDurationChange}
           onNotesChange={handleNotesChange}
           onAddExercise={handleAddExercise}
