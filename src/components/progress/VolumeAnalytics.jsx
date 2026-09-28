@@ -3,7 +3,7 @@ import { Bar } from 'react-chartjs-2'
 import { ChevronLeft, ChevronRight, Trophy, TrendingUp, TrendingDown, BarChart2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getVolumeAnalytics } from '../../lib/db'
-import { shiftPeriod, formatPeriodShort, getPeriodKey } from '../../lib/utils'
+import { shiftPeriod, getPeriodKey, toDateStr } from '../../lib/utils'
 
 const GRANULARITIES = [
   { id: 'day',   label: 'Day' },
@@ -18,22 +18,10 @@ function fmtLoad(n) {
   if (n < 10000) return (n / 1000).toFixed(1) + 'k'
   return Math.round(n / 1000) + 'k'
 }
-function fmtDate(d) {
-  if (!d) return ''
-  if (typeof d === 'string') return d
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
 function bucketLabel(b) {
   if (b.isBW) return 'BW'
   if (b.type === 'vest') return 'Vest'
   return b.type === 'double' ? `2×${b.weight}kg` : `${b.weight}kg`
-}
-// 'day' | 'week' | 'month' → the noun used when naming the best period
-function periodWord(g) {
-  return g === 'day' ? 'day' : g === 'week' ? 'week' : 'month'
 }
 
 export default function VolumeAnalytics() {
@@ -178,7 +166,7 @@ export default function VolumeAnalytics() {
                   {pctOfBest}% of your best {granularity} ever
                   {' ('}
                   {useLoad ? fmtLoad(bestEver.load) + ' load' : bestEver.reps + ' reps'}
-                  {bestEver.date ? `, ${periodWord(granularity)} of ${fmtDate(bestEver.date)}` : ''}
+                  {bestEver.date ? `, ${granularity} of ${toDateStr(bestEver.date)}` : ''}
                   {')'}
                 </span>
               </>
@@ -276,7 +264,7 @@ function BucketRow({ bucket, granularity }) {
         ) : bestMetric > 0 ? (
           <span className={`text-[11px] ${pctOfBest >= 90 ? 'text-green-400' : 'text-gray-500'}`}>
             {pctOfBest}% of best {granularity} ({useLoad ? fmtLoad(bestPeriodEver.load) + ' load' : bestPeriodEver.reps + ' reps'}
-            {bestPeriodEver.date ? `, ${periodWord(granularity)} of ${fmtDate(bestPeriodEver.date)}` : ''})
+            {bestPeriodEver.date ? `, ${granularity} of ${toDateStr(bestPeriodEver.date)}` : ''})
           </span>
         ) : (
           <span className="text-[11px] text-gray-600">(new)</span>

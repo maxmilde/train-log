@@ -1,5 +1,5 @@
 import { Trophy, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react'
-import { weightLabelFor, repsAreParSide } from '../../lib/utils'
+import { weightLabelFor, repsAreParSide, effectiveSetWeight } from '../../lib/utils'
 import { exerciseTotalsForState } from '../../lib/workoutTemplates'
 
 export default function WorkoutSummary({ exercises, complexes = [], durationMinutes, templateInfo }) {
@@ -15,14 +15,10 @@ export default function WorkoutSummary({ exercises, complexes = [], durationMinu
 
   const addSet = (exerciseName, exWeightType, exWeightKg, set, extraMultiplier = 1) => {
     if (set.reps == null || set.reps === 0) return
-    const exDefaultIsBW = exWeightType === 'bodyweight'
-    const effType = set.weightType ?? exWeightType ?? 'single'
-    const isBWSet = effType === 'bodyweight' || (exDefaultIsBW && set.weightKg == null)
-    const effKg = isBWSet ? null : (set.weightKg ?? exWeightKg)
-    const normType = isBWSet ? 'bodyweight' : effType
-    const key = `${exerciseName}|${normType}|${effKg ?? 'bw'}`
+    const { type, kg } = effectiveSetWeight(exWeightType, exWeightKg, set.weightType, set.weightKg)
+    const key = `${exerciseName}|${type}|${kg ?? 'bw'}`
     if (!groupMap.has(key)) {
-      const group = { exerciseName, weightType: normType, weightKg: effKg, totalReps: 0 }
+      const group = { exerciseName, weightType: type, weightKg: kg, totalReps: 0 }
       groupMap.set(key, group)
       groups.push(group)
     }

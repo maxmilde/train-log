@@ -170,6 +170,49 @@ export default function WorkoutDayPage() {
     return day.id
   }, [user])
 
+  // ── SAVE FAILURES ───────────────────────────────────────────────────────────
+  // Edits show on screen immediately and save in the background. If a save fails
+  // (e.g. no signal in the gym), it's kept here, a red banner says so, and it's retried
+  // when the connection comes back or on tap. Keyed per item so only the newest save of
+  // each item is retried, never an older value over a newer one.
+  const pendingRef = useRef(new Map())   // key -> save fn
+  const seqRef = useRef(new Map())       // key -> number of the newest attempt
+  const [pendingCount, setPendingCount] = useState(0)
+  const [actionError, setActionError] = useState(null)
+
+  const persist = useCallback(async (key, save) => {
+    const seq = (seqRef.current.get(key) ?? 0) + 1
+    seqRef.current.set(key, seq)
+    try {
+      await save()
+      if (seqRef.current.get(key) === seq) pendingRef.current.delete(key)
+    } catch (e) {
+      console.error(`Save failed (${key}):`, e)
+      // 23503 = the item it belongs to was deleted since, so there's nothing left to save
+      const gone = e?.code === '23503'
+      if (seqRef.current.get(key) === seq) {
+        if (gone) pendingRef.current.delete(key)
+        else pendingRef.current.set(key, save)
+      }
+    }
+    setPendingCount(pendingRef.current.size)
+  }, [])
+
+  const retryPending = useCallback(async () => {
+    for (const [key, save] of [...pendingRef.current]) await persist(key, save)
+  }, [persist])
+
+  // Actions that didn't happen at all (nothing changed on screen), so there's nothing to retry
+  const reportFailure = useCallback((message, e) => {
+    console.error(message, e)
+    setActionError(`${message}. Check your connection and try again.`)
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('online', retryPending)
+    return () => window.removeEventListener('online', retryPending)
+  }, [retryPending])
+
   // ── HANDLERS ────────────────────────────────────────────────────────────────
 
   // Difficulty (1–4) saves immediately, so it can be set before or after submitting.
@@ -177,8 +220,8 @@ export default function WorkoutDayPage() {
   const handleDifficultyChange = useCallback(async (value) => {
     const next = state.difficulty === value ? null : value
     setState(prev => ({ ...prev, difficulty: next }))
-    try {
-      setSaving(true)
+    setSaving(true)
+    await persist('difficulty', async () => {
       const day = await upsertDay(user.id, {
         date,
         day_type: 'workout',
@@ -186,9 +229,9 @@ export default function WorkoutDayPage() {
         difficulty: next,
       })
       if (!state.dayId) setState(prev => ({ ...prev, dayId: day.id }))
-    } catch (e) { console.error('Save difficulty:', e) }
-    finally { setSaving(false) }
-  }, [user, date, state])
+    })
+    setSaving(false)
+  }, [user, date, state, persist])
 
   // Duration: only local state — saved on submit
   const handleDurationChange = useCallback((durationMinutes) => {
@@ -203,7 +246,7 @@ export default function WorkoutDayPage() {
   const persistNotes = useCallback(async () => {
     const st = stateRef.current
     if (!user || !st) return
-    try {
+    await persist('notes', async () => {
       const dayId = st.dayId ?? await ensureDay(st)
       await upsertDay(user.id, {
         date: st.date,
@@ -214,8 +257,8 @@ export default function WorkoutDayPage() {
       if (!st.dayId) {
         setState(prev => prev ? { ...prev, dayId } : prev)
       }
-    } catch (e) { console.error('Save notes:', e) }
-  }, [user, ensureDay])
+    })
+  }, [user, ensureDay, persist])
 
   // Notes: optimistic local update + debounced DB save (~800ms idle)
   const notesTimerRef = useRef(null)
@@ -281,9 +324,9 @@ export default function WorkoutDayPage() {
 
       // Refresh exercise names
       getExerciseNames(user.id).then(setNames)
-    } catch (e) { console.error(e) }
+    } catch (e) { reportFailure("Couldn't add the exercise", e) }
     finally { setSaving(false) }
-  }, [user, state, ensureDay])
+  }, [user, state, ensureDay, reportFailure])
 
   const handleUpdateExercise = useCallback(async (exerciseId, patch) => {
     const ex = state.exercises.find(e => e.id === exerciseId)
@@ -317,7 +360,7 @@ export default function WorkoutDayPage() {
     const dbFields = ['exerciseName', 'weightKg', 'weightType']
     if (!dbFields.some(f => f in fullPatch)) return
 
-    try {
+    await persist(`exercise:${exerciseId}`, async () => {
       const merged = { ...ex, ...fullPatch }
       await upsertExercise(user.id, state.dayId, {
         id:            exerciseId,
@@ -339,8 +382,8 @@ export default function WorkoutDayPage() {
       if ('exerciseName' in patch) {
         getExerciseNames(user.id).then(setNames)
       }
-    } catch (e) { console.error(e) }
-  }, [user, state])
+    })
+  }, [user, state, persist])
 
   // Swap positions of two items in the mixed exercises+complexes list.
   const handleMoveItem = useCallback(async (fromIndex, toIndex) => {
@@ -372,7 +415,7 @@ export default function WorkoutDayPage() {
     }))
 
     // Persist to DB
-    try {
+    await persist(`order:${a.item.id}:${b.item.id}`, async () => {
       const write = async (side, newOrder) => {
         if (side.kind === 'exercise') {
           await upsertExercise(user.id, state.dayId, {
@@ -391,18 +434,18 @@ export default function WorkoutDayPage() {
         }
       }
       await Promise.all([write(a, orderB), write(b, orderA)])
-    } catch (e) { console.error('Failed to save item order:', e) }
-  }, [user, state])
+    })
+  }, [user, state, persist])
 
   const handleDeleteExercise = useCallback(async (exerciseId) => {
     setState(prev => ({
       ...prev,
       exercises: prev.exercises.filter(ex => ex.id !== exerciseId),
     }))
-    try {
+    await persist(`exercise:${exerciseId}`, async () => {
       await deleteExercise(exerciseId)
-    } catch (e) { console.error(e) }
-  }, [])
+    })
+  }, [persist])
 
   // ── COMPLEX HANDLERS ─────────────────────────────────────────────────────────
 
@@ -428,9 +471,9 @@ export default function WorkoutDayPage() {
         dayId,
         complexes: [...prev.complexes, newComplex],
       }))
-    } catch (e) { console.error('Add complex:', e) }
+    } catch (e) { reportFailure("Couldn't add the complex", e) }
     finally { setSaving(false) }
-  }, [user, state, ensureDay])
+  }, [user, state, ensureDay, reportFailure])
 
   // Update a complex (usually just the rounds count)
   const handleUpdateComplex = useCallback(async (complexId, patch) => {
@@ -440,7 +483,7 @@ export default function WorkoutDayPage() {
         c.id === complexId ? { ...c, ...patch } : c
       ),
     }))
-    try {
+    await persist(`complex:${complexId}`, async () => {
       const cx = state.complexes.find(c => c.id === complexId)
       if (!cx) return
       const merged = { ...cx, ...patch }
@@ -449,18 +492,18 @@ export default function WorkoutDayPage() {
         rounds: merged.rounds,
         display_order: merged.displayOrder,
       })
-    } catch (e) { console.error('Update complex:', e) }
-  }, [user, state])
+    })
+  }, [user, state, persist])
 
   const handleDeleteComplex = useCallback(async (complexId) => {
     setState(prev => ({
       ...prev,
       complexes: prev.complexes.filter(c => c.id !== complexId),
     }))
-    try {
+    await persist(`complex:${complexId}`, async () => {
       await deleteComplex(complexId)
-    } catch (e) { console.error('Delete complex:', e) }
-  }, [])
+    })
+  }, [persist])
 
   // Add an exercise inside a specific complex — creates the exercise AND one implicit set
   const handleAddExerciseToComplex = useCallback(async (complexId) => {
@@ -493,9 +536,9 @@ export default function WorkoutDayPage() {
         ),
       }))
       getExerciseNames(user.id).then(setNames)
-    } catch (e) { console.error('Add exercise to complex:', e) }
+    } catch (e) { reportFailure("Couldn't add the exercise", e) }
     finally { setSaving(false) }
-  }, [user, state])
+  }, [user, state, reportFailure])
 
   // Update an exercise inside a complex (name, weight, type, or its one set's reps/rounds)
   const handleUpdateComplexExercise = useCallback(async (complexId, exerciseId, patch) => {
@@ -535,7 +578,7 @@ export default function WorkoutDayPage() {
     }))
     const dbFields = ['exerciseName', 'weightKg', 'weightType']
     if (!dbFields.some(f => f in fullPatch)) return
-    try {
+    await persist(`exercise:${exerciseId}`, async () => {
       const merged = { ...ex, ...fullPatch }
       await upsertExercise(user.id, state.dayId, {
         id:            exerciseId,
@@ -558,8 +601,8 @@ export default function WorkoutDayPage() {
       if ('exerciseName' in patch) {
         getExerciseNames(user.id).then(setNames)
       }
-    } catch (e) { console.error('Update complex exercise:', e) }
-  }, [user, state])
+    })
+  }, [user, state, persist])
 
   // Update the single set inside a complex-exercise (reps or weight/type)
   const handleUpdateComplexSet = useCallback(async (complexId, exerciseId, patch) => {
@@ -578,7 +621,7 @@ export default function WorkoutDayPage() {
           : c
       ),
     }))
-    try {
+    await persist(`complex-set:${exerciseId}`, async () => {
       const cx = state.complexes.find(c => c.id === complexId)
       const ex = cx?.exercises.find(e => e.id === exerciseId)
       const set = ex?.sets[0]
@@ -592,8 +635,8 @@ export default function WorkoutDayPage() {
         weight_type: merged.weightType ?? null,
         rounds:      merged.rounds ?? 1,
       })
-    } catch (e) { console.error('Update complex set:', e) }
-  }, [user, state])
+    })
+  }, [user, state, persist])
 
   // Populate an existing (empty) complex from a template
   const handleLoadComplexTemplate = useCallback(async (complexId, template) => {
@@ -616,9 +659,9 @@ export default function WorkoutDayPage() {
         ),
       }))
       getExerciseNames(user.id).then(setNames)
-    } catch (e) { console.error('Load template:', e) }
+    } catch (e) { reportFailure("Couldn't load the complex", e) }
     finally { setSaving(false) }
-  }, [user, state])
+  }, [user, state, reportFailure])
 
   const handleDeleteComplexExercise = useCallback(async (complexId, exerciseId) => {
     setState(prev => ({
@@ -629,10 +672,10 @@ export default function WorkoutDayPage() {
           : c
       ),
     }))
-    try {
+    await persist(`exercise:${exerciseId}`, async () => {
       await deleteExercise(exerciseId)
-    } catch (e) { console.error(e) }
-  }, [])
+    })
+  }, [persist])
 
   const handleAddSet = useCallback(async (exerciseId) => {
     try {
@@ -675,8 +718,8 @@ export default function WorkoutDayPage() {
             : e
         ),
       }))
-    } catch (e) { console.error(e) }
-  }, [user, state])
+    } catch (e) { reportFailure("Couldn't add the set", e) }
+  }, [user, state, reportFailure])
 
   const handleUpdateSet = useCallback(async (exerciseId, setId, patch) => {
     // Optimistic
@@ -690,7 +733,7 @@ export default function WorkoutDayPage() {
           : ex
       ),
     }))
-    try {
+    await persist(`set:${setId}`, async () => {
       const ex  = state.exercises.find(e => e.id === exerciseId)
       const set = ex?.sets.find(s => s.id === setId)
       if (!set) return
@@ -703,8 +746,8 @@ export default function WorkoutDayPage() {
         weight_type: merged.weightType ?? null,
         rounds:      merged.rounds ?? 1,
       })
-    } catch (e) { console.error(e) }
-  }, [user, state])
+    })
+  }, [user, state, persist])
 
   const handleDeleteSet = useCallback(async (exerciseId, setId) => {
     setState(prev => ({
@@ -715,10 +758,10 @@ export default function WorkoutDayPage() {
           : ex
       ),
     }))
-    try {
+    await persist(`set:${setId}`, async () => {
       await deleteSet(setId)
-    } catch (e) { console.error(e) }
-  }, [])
+    })
+  }, [persist])
 
   // ── SAVED WORKOUTS ──────────────────────────────────────────────────────────
 
@@ -744,10 +787,10 @@ export default function WorkoutDayPage() {
   const handleUnlinkTemplate = useCallback(async () => {
     if (!state.dayId) return
     setState(prev => ({ ...prev, templateId: null }))
-    try {
+    await persist('template-link', async () => {
       await unlinkDayTemplate(state.dayId)
-    } catch (e) { console.error('Unlink template:', e) }
-  }, [state])
+    })
+  }, [state, persist])
 
   // ── SUBMIT & DELETE ─────────────────────────────────────────────────────────
 
@@ -782,9 +825,9 @@ export default function WorkoutDayPage() {
           })),
         })),
       }))
-    } catch (e) { console.error(e) }
+    } catch (e) { reportFailure("Couldn't submit the workout", e) }
     finally { setSaving(false) }
-  }, [user, date, state])
+  }, [user, date, state, reportFailure])
 
   const handleDeleteDay = useCallback(async () => {
     if (!state.dayId) return
@@ -792,9 +835,9 @@ export default function WorkoutDayPage() {
       setSaving(true)
       await deleteDay(state.dayId)
       setState(emptyDay(date))
-    } catch (e) { console.error(e) }
+    } catch (e) { reportFailure("Couldn't delete the day", e) }
     finally { setSaving(false) }
-  }, [state, date])
+  }, [state, date, reportFailure])
 
   // ── DATE CHANGE ─────────────────────────────────────────────────────────────
 
@@ -843,6 +886,38 @@ export default function WorkoutDayPage() {
         >
           <p className="text-xs text-gray-500 uppercase tracking-wider">Today</p>
           {saving && <span className="text-xs text-gray-600">Saving…</span>}
+        </div>
+      )}
+
+      {(pendingCount > 0 || actionError) && (
+        <div className="flex-shrink-0 px-4 pt-2 space-y-2">
+          {pendingCount > 0 && (
+            <div className="rounded-xl bg-red-950 border border-red-900 px-3 py-2 flex items-center gap-2">
+              <span className="text-xs text-red-300 flex-1">
+                {pendingCount} change{pendingCount !== 1 ? 's' : ''} not saved. No connection?
+              </span>
+              <button
+                type="button"
+                onClick={retryPending}
+                className="text-xs font-semibold text-red-200 bg-red-900 rounded-lg px-3 py-1.5 active:bg-red-800"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {actionError && (
+            <div className="rounded-xl bg-red-950 border border-red-900 px-3 py-2 flex items-center gap-2">
+              <span className="text-xs text-red-300 flex-1">{actionError}</span>
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                className="text-xs text-red-400 px-2 py-1"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
       )}
 

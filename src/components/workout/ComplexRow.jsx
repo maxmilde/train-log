@@ -3,9 +3,8 @@ import { Trash2, Plus, Minus, Layers, BookOpen } from 'lucide-react'
 import ExerciseAutocomplete from './ExerciseAutocomplete'
 import ReorderControl from './ReorderControl'
 import ComplexPicker from './ComplexPicker'
-import { isVestType, VEST_WEIGHT_KG } from '../../lib/utils'
-
-const WEIGHT_OPTIONS = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32]
+import { isVestType } from '../../lib/utils'
+import WeightControls from './WeightControls'
 
 export default function ComplexRow({
   complex,
@@ -176,7 +175,6 @@ export default function ComplexRow({
 // A single row inside a complex — name + type + weight + reps + delete.
 // One implicit set only.
 function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdateSet, onDelete }) {
-  const [showWeightPicker, setShowWeightPicker] = useState(false)
   const [repsStr, setRepsStr] = useState('')
   const repsFocused = useRef(false)
   const lastParentReps = useRef(null)
@@ -204,30 +202,6 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
     lastParentReps.current = val
     if (val !== set.reps) onUpdateSet({ reps: val })
   }
-
-  function handleSelectBW() {
-    setShowWeightPicker(false)
-    onUpdateSet({ weightKg: null, weightType: 'bodyweight' })
-  }
-  function handleSelectVest() {
-    setShowWeightPicker(false)
-    onUpdateSet({ weightKg: VEST_WEIGHT_KG, weightType: 'vest' })
-  }
-  function handleSelectWeight(w) {
-    setShowWeightPicker(false)
-    const nextType = (effectiveType === 'bodyweight' || effectiveType === 'vest')
-      ? 'single'
-      : effectiveType
-    onUpdateSet({ weightKg: w, weightType: nextType })
-  }
-  function handleToggleType(nextType) {
-    if (nextType !== effectiveType) onUpdateSet({ weightType: nextType })
-  }
-
-  let chipLabel
-  if (isBW) chipLabel = 'BW'
-  else if (isVest) chipLabel = 'Vest'
-  else chipLabel = effectiveType === 'double' ? `2×${effectiveKg}` : `${effectiveKg}`
 
   return (
     <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-700 rounded-xl p-2">
@@ -258,84 +232,14 @@ function ComplexExerciseRow({ exercise, index, exerciseNames, onUpdate, onUpdate
                    focus:outline-none focus:border-green-500 flex-shrink-0"
       />
 
-      {/* 1×/2× toggle — hidden when BW or vest (10kg) */}
-      {!isBW && !isVest ? (
-        <div className="flex rounded-md overflow-hidden border border-gray-700 flex-shrink-0">
-          {['single', 'double'].map(wt => (
-            <button
-              key={wt}
-              type="button"
-              onClick={() => handleToggleType(wt)}
-              className={`px-1.5 text-[10px] font-bold min-h-[40px] w-[22px] transition-colors
-                ${effectiveType === wt
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-800 text-gray-500 active:text-gray-300'}`}
-            >
-              {wt === 'single' ? '1×' : '2×'}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="w-[46px] flex-shrink-0" />
-      )}
-
-      {/* Weight chip */}
-      <div className="relative flex-shrink-0">
-        <button
-          type="button"
-          onClick={() => setShowWeightPicker(v => !v)}
-          className="px-2 rounded-md bg-gray-800 border border-gray-700
-                     text-[11px] text-gray-300 min-h-[40px] w-[52px]
-                     active:bg-gray-700 transition-colors"
-          aria-label="Set weight"
-        >
-          {chipLabel}
-          {!isBW && !isVest && <span className="text-[9px] text-gray-600 ml-0.5">kg</span>}
-        </button>
-        {showWeightPicker && (
-          <>
-            <button
-              type="button"
-              onClick={() => setShowWeightPicker(false)}
-              className="fixed inset-0 z-10 bg-transparent cursor-default"
-              aria-label="Close weight picker"
-            />
-            <div className="absolute right-0 top-full mt-1 z-20 bg-gray-900 border border-gray-700
-                            rounded-lg shadow-xl py-1 max-h-64 overflow-y-auto">
-              <button
-                type="button"
-                onClick={handleSelectBW}
-                className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
-                  ${isBW ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
-              >
-                BW
-              </button>
-              <button
-                type="button"
-                onClick={handleSelectVest}
-                className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
-                  ${isVest ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
-              >
-                Vest {VEST_WEIGHT_KG}kg
-              </button>
-              {WEIGHT_OPTIONS.map(w => {
-                const selected = !isBW && !isVest && w === effectiveKg
-                return (
-                  <button
-                    key={w}
-                    type="button"
-                    onClick={() => handleSelectWeight(w)}
-                    className={`block w-full text-left px-4 py-2 text-sm whitespace-nowrap
-                      ${selected ? 'bg-green-700 text-white' : 'text-gray-200 active:bg-gray-700'}`}
-                  >
-                    {w}kg
-                  </button>
-                )
-              })}
-            </div>
-          </>
-        )}
-      </div>
+      <WeightControls
+        type={effectiveType}
+        kg={effectiveKg}
+        isBW={isBW}
+        isVest={isVest}
+        onChange={onUpdateSet}
+        compact
+      />
 
       {/* Delete */}
       <button

@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react'
-import { weightLabelFor, repsAreParSide } from '../../lib/utils'
+import { weightLabelFor, repsAreParSide, effectiveSetWeight } from '../../lib/utils'
 
 export default function ExerciseHistory({ names, selected, onSelect, history }) {
   function weightLabel(entry) {
@@ -22,16 +22,12 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
   const pbBuckets = new Map()
   if (history.length > 0) {
     history.forEach(entry => {
-      const exDefaultIsBW = entry.weight_type === 'bodyweight'
       const setsByBucket = new Map()
       entry.sets.forEach(s => {
-        const t = s.effective_weight_type ?? entry.weight_type
-        const isBWSet = t === 'bodyweight' || (exDefaultIsBW && s.weight_kg == null)
-        const normType = isBWSet ? 'bodyweight' : t
-        const w = isBWSet ? null : (s.effective_weight_kg ?? entry.weight_kg)
-        const key = `${normType}|${w ?? 'bw'}`
+        const { type, kg } = effectiveSetWeight(entry.weight_type, entry.weight_kg, s.weight_type, s.weight_kg)
+        const key = `${type}|${kg ?? 'bw'}`
         if (!setsByBucket.has(key)) {
-          setsByBucket.set(key, { sets: [], weight_kg: w, weight_type: normType })
+          setsByBucket.set(key, { sets: [], weight_kg: kg, weight_type: type })
         }
         setsByBucket.get(key).sets.push(s)
       })
@@ -119,12 +115,9 @@ export default function ExerciseHistory({ names, selected, onSelect, history }) 
 
               {/* Set breakdown — show label when type/weight differs from previous set */}
               {entry.sets.length > 0 && (() => {
-                const exDefaultIsBW = entry.weight_type === 'bodyweight'
                 const effLabel = (s) => {
-                  const t = s.effective_weight_type ?? entry.weight_type
-                  if (t === 'bodyweight' || (exDefaultIsBW && s.weight_kg == null)) return 'BW'
-                  const w = s.effective_weight_kg ?? entry.weight_kg
-                  return weightLabelFor(t, w)
+                  const { type, kg } = effectiveSetWeight(entry.weight_type, entry.weight_kg, s.weight_type, s.weight_kg)
+                  return weightLabelFor(type, kg)
                 }
                 const effReps = (s) => {
                   const t = s.effective_weight_type ?? entry.weight_type

@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getSuggestionStats, createWorkoutFromSuggestions } from '../../lib/db'
-import { toDateStr } from '../../lib/utils'
+import { toDateStr, weightLabelFor } from '../../lib/utils'
 import { Sparkles, RefreshCw } from 'lucide-react'
 
 // Exercises that should NOT be checked by default in the suggestion pool.
@@ -157,11 +157,6 @@ export default function WorkoutSuggest() {
     }
   }, [user, suggestions, navigate])
 
-  const sortedExercises = useMemo(() => {
-    if (!stats) return []
-    return [...stats.exercises]
-  }, [stats])
-
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -209,7 +204,7 @@ export default function WorkoutSuggest() {
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {sortedExercises.map(ex => {
+          {stats.exercises.map(ex => {
             const selected = selectedPool.has(ex.name)
             return (
               <button
@@ -254,11 +249,7 @@ export default function WorkoutSuggest() {
           <p className="text-xs text-gray-500 uppercase tracking-wider">Suggested for today</p>
           <div className="space-y-2">
             {suggestions.map((s, i) => {
-              const cfg = s.weight_type === 'bodyweight' || !s.weight_kg
-                ? 'BW'
-                : s.weight_type === 'double'
-                  ? `2×${s.weight_kg}kg`
-                  : `${s.weight_kg}kg`
+              const cfg = weightLabelFor(s.weight_type, s.weight_kg)
               return (
                 <div key={i} className="flex items-center justify-between">
                   <p className="text-sm text-gray-100 font-medium">{i + 1}. {s.name}</p>

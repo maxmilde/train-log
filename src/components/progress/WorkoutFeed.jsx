@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getWorkoutFeed, copyWorkoutToDate } from '../../lib/db'
-import { toDateStr, weightLabelFor, isWorkoutDay, dayDifficulty, difficultyFor } from '../../lib/utils'
+import { toDateStr, weightLabelFor, effectiveSetWeight, isWorkoutDay, dayDifficulty, difficultyFor } from '../../lib/utils'
 import { ChevronDown, ChevronUp, Copy } from 'lucide-react'
 
 const PAGE_SIZE = 20
@@ -159,13 +159,10 @@ export default function WorkoutFeed() {
                     .sort((a, b) => (a.set_number ?? 0) - (b.set_number ?? 0))
                   // Total reps respects per-set rounds
                   const totalReps = sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
-                  const exIsBW = ex.weight_type === 'bodyweight'
                   // Effective per-set label: respects per-set weight_type + weight_kg overrides
                   const effLabel = (s) => {
-                    const t = s.weight_type ?? ex.weight_type
-                    if (t === 'bodyweight' || (exIsBW && s.weight_kg == null)) return 'BW'
-                    const w = s.weight_kg ?? ex.weight_kg
-                    return weightLabelFor(t, w)
+                    const { type, kg } = effectiveSetWeight(ex.weight_type, ex.weight_kg, s.weight_type, s.weight_kg)
+                    return weightLabelFor(type, kg)
                   }
                   // Weight badge leads the row and reappears only where the weight changes:
                   // [2×24kg] 5 5 5 [2×28kg] 4 4 = 23 reps
@@ -216,10 +213,8 @@ export default function WorkoutFeed() {
                         {cx.exercises.map((ex, ei) => {
                           const oneSet = (ex.exercise_sets ?? []).find(s => s.reps != null)
                           if (!oneSet) return null
-                          const t = oneSet.weight_type ?? ex.weight_type
-                          const isBWSet = t === 'bodyweight' || (ex.weight_type === 'bodyweight' && oneSet.weight_kg == null)
-                          const kg = oneSet.weight_kg ?? ex.weight_kg
-                          const lbl = isBWSet ? 'BW' : weightLabelFor(t, kg)
+                          const { type, kg } = effectiveSetWeight(ex.weight_type, ex.weight_kg, oneSet.weight_type, oneSet.weight_kg)
+                          const lbl = weightLabelFor(type, kg)
                           const perRound = (oneSet.reps ?? 0) * (oneSet.rounds ?? 1)
                           const total = perRound * rounds
                           return (

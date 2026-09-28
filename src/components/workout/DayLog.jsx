@@ -6,7 +6,7 @@ import ComplexPicker from './ComplexPicker'
 import WorkoutSummary from './WorkoutSummary'
 import WorkoutTemplateBar from './WorkoutTemplateBar'
 import { nameKey, complexSignature } from '../../lib/workoutTemplates'
-import { DIFFICULTIES } from '../../lib/utils'
+import { DIFFICULTIES, toDateStr } from '../../lib/utils'
 
 export default function DayLog({
   state,
@@ -96,7 +96,7 @@ export default function DayLog({
             id="daylog-date-picker"
             type="date"
             value={date}
-            max={new Date().toISOString().split('T')[0]}
+            max={toDateStr(new Date())}
             onChange={e => {
               if (e.target.value && onDateChange) onDateChange(e.target.value)
             }}

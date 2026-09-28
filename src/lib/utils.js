@@ -65,6 +65,16 @@ export function excludedFromLoad(exerciseName) {
   return EXCLUDED_FROM_LOAD.has(exerciseKey(exerciseName))
 }
 
+// A set's real weight: its own override, else the exercise's default. A set is
+// bodyweight if its type says so, or if it belongs to a bodyweight exercise and has no weight.
+export function effectiveSetWeight(exType, exKg, setType, setKg) {
+  const type = setType ?? exType ?? 'single'
+  if (type === 'bodyweight' || (exType === 'bodyweight' && setKg == null)) {
+    return { type: 'bodyweight', kg: null, isBW: true }
+  }
+  return { type, kg: setKg ?? exKg, isBW: false }
+}
+
 // Label for any (weight_type, weight_kg) pair.
 export function weightLabelFor(weightType, weightKg) {
   if (weightType === 'bodyweight' || weightKg == null) return 'BW'
@@ -266,26 +276,6 @@ export function formatPB(pb) {
       ? ` @2\u00d7${pb.weight_kg}kg`
       : ` @${pb.weight_kg}kg`
   return `${pb.sets} sets \u00d7 ${repsStr} reps${legacyWeightStr}`
-}
-
-export function secondsToTimeStr(secs) {
-  if (!secs && secs !== 0) return ''
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
-export function timeStrToSeconds(str) {
-  if (!str || !str.trim()) return null
-  const parts = str.trim().split(':')
-  if (parts.length === 2) {
-    const m = parseInt(parts[0], 10)
-    const s = parseInt(parts[1], 10)
-    if (isNaN(m) || isNaN(s)) return null
-    return m * 60 + s
-  }
-  const n = parseInt(str, 10)
-  return isNaN(n) ? null : n
 }
 
 export function buildWeeklyDuration(days) {

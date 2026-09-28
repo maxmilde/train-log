@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import {
   getPeriodStart, getPeriodEnd, getPeriodKey, shiftPeriod,
-  formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight, excludedFromLoad,
+  formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight, excludedFromLoad, effectiveSetWeight,
 } from './utils'
 import {
   normalizeTemplateSession, pickBestSession, bestExerciseSets, complexSignature, nameKey,
@@ -183,15 +183,13 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
     const complexRounds = ex.workout_complexes?.rounds ?? 1
     for (const set of ex.exercise_sets ?? []) {
       if (set.reps == null) continue
-      const effType = set.weight_type ?? ex.weight_type ?? 'single'
-      const isBW = effType === 'bodyweight' || (ex.weight_type === 'bodyweight' && set.weight_kg == null)
-      const effKg = isBW ? null : (set.weight_kg ?? ex.weight_kg)
+      const { type, kg, isBW } = effectiveSetWeight(ex.weight_type, ex.weight_kg, set.weight_type, set.weight_kg)
       const effReps = (set.reps ?? 0) * (set.rounds ?? 1) * complexRounds
-      const load = isBW ? 0 : effReps * effKg * (effType === 'double' ? 2 : 1)
+      const load = isBW ? 0 : effReps * kg * (type === 'double' ? 2 : 1)
       records.push({
         name: ex.exercise_name,
-        type: isBW ? 'bodyweight' : effType,
-        weight: isBW ? null : effKg,
+        type,
+        weight: kg,
         date: day.date,
         reps: effReps,
         load,
@@ -798,7 +796,6 @@ export async function getSuggestionStats(userId, daysBack = 30) {
 
   // Aggregate into per-name buckets
   const stats = new Map()
-  let workoutDates = new Set()
 
   for (const ex of allExs ?? []) {
     const name = ex.exercise_name
@@ -832,7 +829,6 @@ export async function getSuggestionStats(userId, daysBack = 30) {
       s.recentReps += (ex.exercise_sets ?? [])
         .reduce((a, ss) => a + (ss.reps ?? 0) * (ss.rounds ?? 1) * complexRounds, 0)
     }
-    workoutDates.add(day.date)
   }
 
   // 2) Fetch workout day count + exercise counts to compute avg workout size
@@ -857,30 +853,31 @@ export async function getSuggestionStats(userId, daysBack = 30) {
   }
 }
 
+// The day row for a date, created as an empty workout if it doesn't exist yet
+async function getOrCreateDay(userId, date) {
+  const { data: existing, error: findErr } = await supabase
+    .from('workout_days')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('date', date)
+    .maybeSingle()
+  if (findErr) throw findErr
+  if (existing) return existing
+  const { data, error } = await supabase
+    .from('workout_days')
+    .insert({ user_id: userId, date, day_type: 'workout' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 // Create a new workout day from a list of suggested exercises (just names + most-recent weight config).
 // suggestions: [{ name, weight_kg, weight_type }]. Appends to existing if today already has any.
 export async function createWorkoutFromSuggestions(userId, targetDate, suggestions) {
   if (!suggestions || suggestions.length === 0) throw new Error('No suggestions provided')
 
-  // Ensure target day
-  const { data: existingDay, error: dayErr } = await supabase
-    .from('workout_days')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('date', targetDate)
-    .maybeSingle()
-  if (dayErr && dayErr.code !== 'PGRST116') throw dayErr
-
-  let targetDay = existingDay
-  if (!targetDay) {
-    const { data, error } = await supabase
-      .from('workout_days')
-      .insert({ user_id: userId, date: targetDate, day_type: 'workout' })
-      .select()
-      .single()
-    if (error) throw error
-    targetDay = data
-  }
+  const targetDay = await getOrCreateDay(userId, targetDate)
 
   const { data: existingExs } = await supabase
     .from('workout_exercises')
@@ -929,25 +926,7 @@ export async function copyWorkoutToDate(userId, sourceDayId, targetDate) {
     throw new Error('Source workout has nothing to copy')
   }
 
-  // Ensure target day exists (default day_type=workout)
-  const { data: existingDay, error: dayErr } = await supabase
-    .from('workout_days')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('date', targetDate)
-    .maybeSingle()
-  if (dayErr && dayErr.code !== 'PGRST116') throw dayErr
-
-  let targetDay = existingDay
-  if (!targetDay) {
-    const { data, error } = await supabase
-      .from('workout_days')
-      .insert({ user_id: userId, date: targetDate, day_type: 'workout' })
-      .select()
-      .single()
-    if (error) throw error
-    targetDay = data
-  }
+  const targetDay = await getOrCreateDay(userId, targetDate)
 
   // Compute base display order across BOTH tables so appended content follows any existing rows
   const [{ data: existingExs }, { data: existingCxs }] = await Promise.all([
