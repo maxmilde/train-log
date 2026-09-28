@@ -122,6 +122,7 @@ const DEFAULTS = {
   'deadlift': m(['glutes', 'hamstrings'], ['lowerBack'], ['forearms', 'traps'], ['quads']),
   'squats': squat,
   'lunges': lunge,
+  'hindu squats': m(['quads'], ['glutes', 'calves'], ['hamstrings'], ['abs']),
   'thruster': m(['quads', 'glutes', 'shoulders'], ['triceps'], ['traps'], ['abs']),
   'sommersault': m(['glutes'], ['hamstrings'], ['lowerBack']),
   'calf raise': m(['calves']),
