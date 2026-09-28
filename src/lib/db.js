@@ -1,10 +1,10 @@
 import { supabase } from './supabase'
 import {
   getPeriodStart, getPeriodEnd, getPeriodKey, shiftPeriod,
-  formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight,
+  formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight, excludedFromLoad,
 } from './utils'
 import {
-  normalizeTemplateSession, pickBestSession, complexSignature, nameKey,
+  normalizeTemplateSession, pickBestSession, bestExerciseSets, complexSignature, nameKey,
 } from './workoutTemplates'
 
 // ── USER SETTINGS ──────────────────────────────────────────────────────────────
@@ -321,16 +321,18 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
     })
   }
 
-  // Overall period totals + best-ever period (across all exercises)
+  // Overall period totals + best-ever period (across all exercises).
+  // Crunch reps count toward total reps, but their weight never adds to total load.
   const periodTotals = new Map()
   for (const bucket of buckets.values()) {
+    const countsLoad = !excludedFromLoad(bucket.name)
     for (const [pkey, p] of bucket.periods) {
       if (!periodTotals.has(pkey)) {
         periodTotals.set(pkey, { reps: 0, load: 0, dates: new Set(), periodDate: p.periodDate })
       }
       const t = periodTotals.get(pkey)
       t.reps += p.reps
-      t.load += p.load
+      if (countsLoad) t.load += p.load
       for (const d of p.dates) t.dates.add(d)
     }
   }
@@ -568,7 +570,7 @@ export async function getTemplateSessions(userId, templateId, excludeDayId = nul
   let query = supabase
     .from('workout_days')
     .select(`
-      id, date, submitted,
+      id, date, submitted, duration_minutes,
       workout_exercises(id, exercise_name, weight_kg, weight_type, display_order, complex_id,
         exercise_sets(set_number, reps, weight_kg, weight_type, rounds)),
       workout_complexes(id, rounds, display_order)
@@ -585,8 +587,9 @@ export async function getTemplateSessions(userId, templateId, excludeDayId = nul
     .filter(s => s.exercises.length > 0 || s.complexes.length > 0)
 }
 
-// Build a saved workout into a day. Structure comes from the BEST session (so the grey
-// targets line up), weights from the MOST RECENT session. Reps start empty for normal
+// Build a saved workout into a day. Exercise order comes from the BEST session, each
+// exercise's set count from its own best session (so the grey targets line up),
+// weights from the MOST RECENT session. Reps start empty for normal
 // sets; complexes keep their per-round reps and start at 0 rounds. The day is linked
 // to the template so targets and the summary comparison survive a reload.
 export async function loadTemplateIntoDay(userId, dayId, templateId, startOrder = 0) {
@@ -595,6 +598,7 @@ export async function loadTemplateIntoDay(userId, dayId, templateId, startOrder 
     throw new Error('Submit at least one session of this workout before loading it')
   }
   const best = pickBestSession(sessions)
+  const bestSets = bestExerciseSets(sessions)
   const last = sessions[0]
 
   // Weight lookups from the last session, matched the same way as grey targets
@@ -646,7 +650,7 @@ export async function loadTemplateIntoDay(userId, dayId, templateId, startOrder 
         .single()
       if (exErr) throw exErr
 
-      const setRows = item.sets.map((s, i) => {
+      const setRows = (bestSets.get(`${base}#${n}`) ?? item.sets).map((s, i) => {
         const w = prev?.sets[i] ?? prev?.sets[prev.sets.length - 1] ?? s
         return {
           user_id: userId,

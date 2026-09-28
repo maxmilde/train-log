@@ -22,7 +22,7 @@ import {
   loadTemplateIntoDay,
 } from '../lib/db'
 import { toDateStr, defaultsToBodyweight, dayDifficulty } from '../lib/utils'
-import { pickBestSession, buildGhosts } from '../lib/workoutTemplates'
+import { buildGhosts, bestExerciseTotals, fastestDuration } from '../lib/workoutTemplates'
 import DayLog from '../components/workout/DayLog'
 
 function normDay(day) {
@@ -111,7 +111,7 @@ export default function WorkoutDayPage() {
   const [exerciseNames, setNames]   = useState([])
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState(false)
-  // Saved-workout context for this day: { id, name, best, ghosts } or null
+  // Saved-workout context for this day: { id, name, sessions, ghosts, bestTotals, fastest } or null
   const [templateInfo, setTemplateInfo] = useState(null)
 
   const fromDashboard = !!routeDate
@@ -135,8 +135,8 @@ export default function WorkoutDayPage() {
 
   useEffect(() => { loadDay() }, [loadDay])
 
-  // When the day is linked to a saved workout, fetch its best past session for the
-  // grey target reps and the end-of-workout comparison.
+  // When the day is linked to a saved workout, fetch its past sessions for the grey
+  // target reps (each exercise's best session) and the end-of-workout comparison.
   const templateId = state?.templateId ?? null
   const dayId = state?.dayId ?? null
   useEffect(() => {
@@ -148,12 +148,13 @@ export default function WorkoutDayPage() {
     ]).then(([templates, sessions]) => {
       if (cancelled) return
       const template = templates.find(t => t.id === templateId)
-      const best = pickBestSession(sessions)
       setTemplateInfo({
         id: templateId,
         name: template?.name ?? 'Saved workout',
-        best,
-        ghosts: buildGhosts(best),
+        sessions: sessions.length,
+        ghosts: buildGhosts(sessions),
+        bestTotals: bestExerciseTotals(sessions),
+        fastest: fastestDuration(sessions),
       })
     }).catch(err => console.error('Template info:', err))
     return () => { cancelled = true }

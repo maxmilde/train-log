@@ -52,9 +52,17 @@ export function dayDifficulty(day) {
 // Exercises that default to bodyweight when named. Matching ignores case, spaces,
 // hyphens and a trailing plural "s", so "Pull-ups", "push ups" and "Crunch" all match.
 const BW_DEFAULT_EXERCISES = new Set(['pullup', 'pushup', 'crunch'])
+const exerciseKey = (exerciseName) =>
+  (exerciseName ?? '').toLowerCase().replace(/[^a-z]/g, '').replace(/e?s$/, '')
 export function defaultsToBodyweight(exerciseName) {
-  const key = (exerciseName ?? '').toLowerCase().replace(/[^a-z]/g, '').replace(/e?s$/, '')
-  return BW_DEFAULT_EXERCISES.has(key)
+  return BW_DEFAULT_EXERCISES.has(exerciseKey(exerciseName))
+}
+
+// Exercises whose weight never counts toward total load (their reps still count in
+// total reps). Matched like defaultsToBodyweight.
+const EXCLUDED_FROM_LOAD = new Set(['crunch'])
+export function excludedFromLoad(exerciseName) {
+  return EXCLUDED_FROM_LOAD.has(exerciseKey(exerciseName))
 }
 
 // Label for any (weight_type, weight_kg) pair.

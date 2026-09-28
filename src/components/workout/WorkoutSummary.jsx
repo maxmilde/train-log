@@ -1,6 +1,6 @@
 import { Trophy, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { weightLabelFor, repsAreParSide } from '../../lib/utils'
-import { exerciseTotalsForState, exerciseTotalsForSession } from '../../lib/workoutTemplates'
+import { exerciseTotalsForState } from '../../lib/workoutTemplates'
 
 export default function WorkoutSummary({ exercises, complexes = [], durationMinutes, templateInfo }) {
   const hasWork = (exercises && exercises.length > 0) || (complexes && complexes.length > 0)
@@ -98,65 +98,77 @@ export default function WorkoutSummary({ exercises, complexes = [], durationMinu
         </div>
       )}
 
-      {templateInfo?.best && (
+      {templateInfo?.sessions > 0 && (
         <BestComparison
           name={templateInfo.name}
-          best={templateInfo.best}
+          bestTotals={templateInfo.bestTotals}
+          fastest={templateInfo.fastest}
+          durationMinutes={durationMinutes}
           exercises={exercises}
           complexes={complexes}
+          formatDuration={formatDuration}
         />
       )}
     </div>
   )
 }
 
-// Per-exercise total reps today vs the saved workout's best session (the same
-// session the grey targets came from), plus the workout total.
-function BestComparison({ name, best, exercises, complexes }) {
+// Per-exercise total reps today vs that exercise's best session of this saved workout
+// (the same numbers the grey targets came from), plus time vs the quickest session.
+// No workout-wide total: exercises are compared one by one.
+function BestComparison({ name, bestTotals, fastest, durationMinutes, exercises, complexes, formatDuration }) {
   const today = exerciseTotalsForState(exercises, complexes)
-  const previous = exerciseTotalsForSession(best)
 
-  const keys = [...new Set([...previous.keys(), ...today.keys()])]
+  const keys = [...new Set([...bestTotals.keys(), ...today.keys()])]
   const rows = keys
     .map(k => ({
-      name: today.get(k)?.name ?? previous.get(k)?.name,
+      name: today.get(k)?.name ?? bestTotals.get(k)?.name,
       now: today.get(k)?.reps ?? 0,
-      before: previous.get(k)?.reps ?? 0,
+      before: bestTotals.get(k)?.reps ?? 0,
     }))
     .filter(r => r.now > 0 || r.before > 0)
-
-  const totalNow = rows.reduce((a, r) => a + r.now, 0)
-  const totalBefore = rows.reduce((a, r) => a + r.before, 0)
 
   return (
     <div className="pt-3 border-t border-gray-700 space-y-2">
       <p className="text-[10px] text-gray-500 uppercase tracking-wider">
-        vs best “{name}” ({best.date})
+        vs best “{name}”
       </p>
       {rows.map((r, i) => (
         <DeltaRow key={i} label={r.name} now={r.now} before={r.before} />
       ))}
-      <div className="pt-2 border-t border-gray-700/60">
-        <DeltaRow label="Total" now={totalNow} before={totalBefore} bold />
-      </div>
+      {fastest != null && durationMinutes > 0 && (
+        <div className="pt-2 border-t border-gray-700/60">
+          <DeltaRow
+            label="Time"
+            now={durationMinutes}
+            before={fastest}
+            lowerIsBetter
+            format={formatDuration}
+          />
+        </div>
+      )}
     </div>
   )
 }
 
-function DeltaRow({ label, now, before, bold = false }) {
+// lowerIsBetter flips the colours and arrows (less time = progress)
+function DeltaRow({ label, now, before, bold = false, lowerIsBetter = false, format = (n) => n }) {
   const diff = now - before
   const pct = before > 0 ? Math.round((diff / before) * 100) : null
-  const Icon = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
-  const tone = diff > 0 ? 'text-green-400' : diff < 0 ? 'text-red-400' : 'text-gray-500'
+  const better = lowerIsBetter ? diff < 0 : diff > 0
+  const worse = lowerIsBetter ? diff > 0 : diff < 0
+  const Icon = better ? TrendingUp : worse ? TrendingDown : Minus
+  const tone = better ? 'text-green-400' : worse ? 'text-red-400' : 'text-gray-500'
+  const diffStr = lowerIsBetter ? `${diff > 0 ? '+' : diff < 0 ? '−' : ''}${format(Math.abs(diff)) ?? 0}` : `${diff > 0 ? '+' : ''}${diff}`
   return (
     <div className="flex items-center justify-between gap-3">
       <span className={`text-sm truncate ${bold ? 'text-gray-100 font-semibold' : 'text-gray-300'}`}>{label}</span>
       <span className="flex items-center gap-2 whitespace-nowrap tabular-nums">
-        <span className={`text-sm ${bold ? 'text-gray-100 font-semibold' : 'text-gray-100'}`}>{now}</span>
-        <span className="text-[11px] text-gray-500">/ {before}</span>
+        <span className={`text-sm ${bold ? 'text-gray-100 font-semibold' : 'text-gray-100'}`}>{format(now)}</span>
+        <span className="text-[11px] text-gray-500">/ {format(before)}</span>
         <span className={`text-[11px] flex items-center gap-0.5 min-w-[4.5rem] justify-end ${tone}`}>
           <Icon size={11} />
-          {diff > 0 ? '+' : ''}{diff}{pct != null ? ` (${pct > 0 ? '+' : ''}${pct}%)` : ''}
+          {diffStr}{pct != null ? ` (${pct > 0 ? '+' : ''}${pct}%)` : ''}
         </span>
       </span>
     </div>

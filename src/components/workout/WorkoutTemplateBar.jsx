@@ -16,7 +16,7 @@ export default function WorkoutTemplateBar({
   const [modal, setModal] = useState(null) // 'load' | 'save' | null
 
   if (templateId) {
-    const best = templateInfo?.best
+    const sessions = templateInfo?.sessions ?? 0
     return (
       <>
         <div className="bg-gray-800 rounded-2xl px-4 py-3 border border-yellow-900/40 flex items-center gap-3">
@@ -26,10 +26,10 @@ export default function WorkoutTemplateBar({
               {templateInfo?.name ?? 'Saved workout'}
             </p>
             <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
-              {best ? (
+              {sessions > 0 ? (
                 <>
                   <Trophy size={10} className="text-yellow-600" />
-                  Beat your best: {best.totalReps} reps ({best.date}) · targets in grey
+                  Grey targets: each exercise's best session ({sessions} logged)
                 </>
               ) : (
                 'First session of this workout'

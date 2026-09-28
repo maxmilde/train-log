@@ -167,20 +167,15 @@ export default function WorkoutFeed() {
                     const w = s.weight_kg ?? ex.weight_kg
                     return weightLabelFor(t, w)
                   }
-                  // Header shows the FIRST set's weight, so the badge below never repeats it
-                  const headerWeight = sets.length > 0
-                    ? effLabel(sets[0])
-                    : weightLabelFor(ex.weight_type, ex.weight_kg)
-                  let prevLabel = sets.length > 0 ? effLabel(sets[0]) : null
+                  // Weight badge leads the row and reappears only where the weight changes:
+                  // [2×24kg] 5 5 5 [2×28kg] 4 4 = 23 reps
+                  let prevLabel = null
 
                   return (
                     <div key={i}>
-                      <div className="flex items-baseline justify-between">
-                        <p className="text-sm text-gray-200 font-medium">
-                          {ex.exercise_name || 'Unnamed'}
-                        </p>
-                        <p className="text-xs text-gray-500">{headerWeight}</p>
-                      </div>
+                      <p className="text-sm text-gray-200 font-medium">
+                        {ex.exercise_name || 'Unnamed'}
+                      </p>
                       <div className="flex gap-1.5 mt-1 flex-wrap">
                         {sets.map((s, si) => {
                           const lbl = effLabel(s)
@@ -228,16 +223,16 @@ export default function WorkoutFeed() {
                           const perRound = (oneSet.reps ?? 0) * (oneSet.rounds ?? 1)
                           const total = perRound * rounds
                           return (
-                            // Same shape as a standalone exercise: name + weight on top,
-                            // reps chip and grey total underneath.
+                            // Same shape as a standalone exercise: name on top, then
+                            // weight badge, reps chip and grey total.
                             <div key={ei}>
-                              <div className="flex items-baseline justify-between">
-                                <p className="text-sm text-gray-200 font-medium">
-                                  {ex.exercise_name || 'Unnamed'}
-                                </p>
-                                <p className="text-xs text-gray-500">{lbl}</p>
-                              </div>
+                              <p className="text-sm text-gray-200 font-medium">
+                                {ex.exercise_name || 'Unnamed'}
+                              </p>
                               <div className="flex gap-1.5 mt-1 flex-wrap items-baseline">
+                                <span className="text-[11px] text-blue-400 bg-blue-950/40 border border-blue-900/50 rounded-md px-1.5 py-0.5">
+                                  {lbl}
+                                </span>
                                 <span className="text-[11px] bg-gray-700 text-gray-300 rounded-md px-1.5 py-0.5">
                                   {oneSet.reps}
                                   {rounds > 1 && <span className="text-gray-500">×{rounds}</span>}

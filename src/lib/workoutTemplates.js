@@ -55,7 +55,13 @@ export function normalizeTemplateSession(day) {
     }))
     .filter(cx => cx.exercises.length > 0)
 
-  const session = { dayId: day.id, date: day.date, exercises, complexes }
+  const session = {
+    dayId: day.id,
+    date: day.date,
+    durationMinutes: day.duration_minutes ?? null,
+    exercises,
+    complexes,
+  }
   session.totalReps = [...exerciseTotalsForSession(session).values()].reduce((a, t) => a + t.reps, 0)
   return session
 }
@@ -102,28 +108,63 @@ export function pickBestSession(sessions) {
   return sessions.reduce((best, s) => (s.totalReps > best.totalReps ? s : best), sessions[0])
 }
 
-// Grey targets from the best session. Exercises are matched by name + occurrence
-// (so reordering doesn't break them); complexes by exercise-name structure + occurrence.
-export function buildGhosts(bestSession) {
+// Per exercise slot ("pushups#0" = first pushups block), the sets from whichever
+// session had the most reps in that slot. Each exercise keeps its own best session's
+// sets together, but different exercises can come from different days.
+// Sessions arrive newest first, so ties keep the most recent.
+export function bestExerciseSets(sessions) {
+  const best = new Map()  // key -> { volume, sets }
+  for (const session of sessions ?? []) {
+    const seen = new Map()
+    for (const ex of session.exercises) {
+      const base = nameKey(ex.name)
+      const n = seen.get(base) ?? 0
+      seen.set(base, n + 1)
+      const key = `${base}#${n}`
+      const volume = ex.sets.reduce((a, s) => a + (s.reps ?? 0) * (s.rounds ?? 1), 0)
+      if (!best.has(key) || volume > best.get(key).volume) best.set(key, { volume, sets: ex.sets })
+    }
+  }
+  return new Map([...best].map(([k, v]) => [k, v.sets]))
+}
+
+// Grey targets: each exercise's best session (see above); each complex's most rounds.
+// Exercises are matched by name + occurrence (so reordering doesn't break them);
+// complexes by exercise-name structure + occurrence.
+export function buildGhosts(sessions) {
   const exerciseSets = new Map()   // "pushups#0" -> [20, 18, 15]
   const complexRounds = new Map()  // "pushups>long cycle#0" -> 5
-  if (!bestSession) return { exerciseSets, complexRounds }
-
-  const seen = new Map()
-  for (const ex of bestSession.exercises) {
-    const base = nameKey(ex.name)
-    const n = seen.get(base) ?? 0
-    seen.set(base, n + 1)
-    exerciseSets.set(`${base}#${n}`, ex.sets.map(s => s.reps))
+  for (const [key, sets] of bestExerciseSets(sessions)) {
+    exerciseSets.set(key, sets.map(s => s.reps))
   }
-  const seenCx = new Map()
-  for (const cx of bestSession.complexes) {
-    const sig = complexSignature(cx.exercises.map(e => e.name))
-    const n = seenCx.get(sig) ?? 0
-    seenCx.set(sig, n + 1)
-    complexRounds.set(`${sig}#${n}`, cx.rounds)
+  for (const session of sessions ?? []) {
+    const seenCx = new Map()
+    for (const cx of session.complexes) {
+      const sig = complexSignature(cx.exercises.map(e => e.name))
+      const n = seenCx.get(sig) ?? 0
+      seenCx.set(sig, n + 1)
+      const key = `${sig}#${n}`
+      complexRounds.set(key, Math.max(complexRounds.get(key) ?? 0, cx.rounds))
+    }
   }
   return { exerciseSets, complexRounds }
+}
+
+// Per exercise name, the most total reps it ever got in one session of this workout
+export function bestExerciseTotals(sessions) {
+  const best = new Map()
+  for (const session of sessions ?? []) {
+    for (const [k, t] of exerciseTotalsForSession(session)) {
+      if (!best.has(k) || t.reps > best.get(k).reps) best.set(k, t)
+    }
+  }
+  return best
+}
+
+// Quickest past session of this workout (minutes), or null if none were timed
+export function fastestDuration(sessions) {
+  const times = (sessions ?? []).map(s => s.durationMinutes).filter(m => m > 0)
+  return times.length > 0 ? Math.min(...times) : null
 }
 
 export { nameKey }

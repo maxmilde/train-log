@@ -8,8 +8,11 @@ export default function ExerciseAutocomplete({ value, options, onChange, classNa
   // Sync when parent value changes
   useEffect(() => { setQuery(value || '') }, [value])
 
+  // Shortest names first, so typing "squa" puts "Squats" above "Squats + Press"
   const filtered = query.length > 0
-    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    ? options
+        .filter(o => o.toLowerCase().includes(query.toLowerCase()))
+        .sort((a, b) => a.length - b.length || a.localeCompare(b))
     : options
 
   // Close on outside click
