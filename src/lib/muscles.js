@@ -47,11 +47,9 @@ export const LEVEL_LABEL = { primary: '1st', secondary: '2nd', tertiary: '3rd', 
 
 // ── BUILT-IN CLASSIFICATION ───────────────────────────────────────────────────
 // Pre-filled from the exercises logged so far. Anything saved in the app
-// (exercise_muscles table) overrides these. A name with a number in it is a combo
-// logged as one exercise (e.g. "4HS-5Jerk") and isn't counted — except the pumps.
+// (exercise_muscles table) overrides these. Old chains are under CHAINS below.
 const m = (primary, secondary = [], tertiary = [], quaternary = []) =>
   ({ primary, secondary, tertiary, quaternary, notCounted: false })
-const COMBO = { primary: [], secondary: [], tertiary: [], quaternary: [], notCounted: true }
 
 // Exercises chained into one (e.g. Clean-Squat): each muscle takes its highest level
 function combine(...parts) {
@@ -128,30 +126,42 @@ const DEFAULTS = {
   'calf raise': m(['calves']),
   'crunches': m(['abs'], ['obliques']),
   'plank': m(['abs'], ['obliques'], ['shoulders']),
-  // Chained exercises without numbers count as one exercise
-  'clean-squat': combine(clean, squat),
-  'clean-squat-lunge-lunge': combine(clean, squat, lunge),
-  'squat-lunge-lunge': combine(squat, lunge),
-  'ds-clean-press': combine(snatch, clean, press),
-  'hs-jerk-fsquat': combine(halfSnatch, jerk, squat),
-  'hs-lc': combine(halfSnatch, longCycle),
-  'hs-lc-squat': combine(halfSnatch, longCycle, squat),
-  'hs-squat': combine(halfSnatch, squat),
-  'swing-clean-ppress-squat-hpull': combine(swing, clean, pushPress, squat, highPull),
-  'swing-clean-ppress-squat-row': combine(swing, clean, pushPress, squat, row),
-  'swing-hs': combine(swing, halfSnatch),
-  'swing-lc': combine(swing, longCycle),
-  'swing-snatch': combine(swing, snatch),
-  // Combos (numbers in the name) — not counted
-  '10pushup-10hindusquat': COMBO,
-  '10pushup-10hindusquat-5pullup': COMBO,
-  '1j-2hs-1lc': COMBO,
-  '2clean-1press-3squat': COMBO,
-  '2hs-jerk-3lc': COMBO,
-  '2jerk-2/2row-10/10hs': COMBO,
-  '4hs-5jerk': COMBO,
-  '4hs-5press': COMBO,
-  '6/6gr-lc-jerk': COMBO,
+}
+
+// ── CHAINS ────────────────────────────────────────────────────────────────────
+// Chains logged as one exercise before complexes existed (the history keeps them as
+// they are). For the map they count as their parts: a part's reps are the number in
+// the name (1 if none) × the logged reps, so "4HS-5Jerk" × 2 = 8 Half Snatch + 10 Jerk
+// and "Clean-Squat" × 8 = 8 Clean + 8 Squats. DS = double snatch (two bells).
+const part = (name, reps = 1) => ({ name, reps })
+const CHAINS = {
+  'clean-squat': [part('Clean'), part('Squats')],
+  'clean-squat-lunge-lunge': [part('Clean'), part('Squats'), part('Lunges')],
+  'squat-lunge-lunge': [part('Squats'), part('Lunges')],
+  'ds-clean-press': [part('Snatch'), part('Clean'), part('Press')],
+  'hs-jerk-fsquat': [part('Half Snatch'), part('Jerk'), part('Squats')],
+  'hs-lc': [part('Half Snatch'), part('Long Cycle')],
+  'hs-lc-squat': [part('Half Snatch'), part('Long Cycle'), part('Squats')],
+  'hs-squat': [part('Half Snatch'), part('Squats')],
+  'swing-clean-ppress-squat-hpull': [part('Swing'), part('Clean'), part('Push press'), part('Squats'), part('High pulls')],
+  'swing-clean-ppress-squat-row': [part('Swing'), part('Clean'), part('Push press'), part('Squats'), part('Row')],
+  'swing-hs': [part('Swing'), part('Half Snatch')],
+  'swing-lc': [part('Swing'), part('Long Cycle')],
+  'swing-snatch': [part('Swing'), part('Snatch')],
+  '10pushup-10hindusquat': [part('Pushups', 10), part('Hindu squats', 10)],
+  '10pushup-10hindusquat-5pullup': [part('Pushups', 10), part('Hindu squats', 10), part('Pullups', 5)],
+  '1j-2hs-1lc': [part('Jerk'), part('Half Snatch', 2), part('Long Cycle')],
+  '2clean-1press-3squat': [part('Clean', 2), part('Press'), part('Squats', 3)],
+  '2hs-jerk-3lc': [part('Half Snatch', 2), part('Jerk'), part('Long Cycle', 3)],
+  '2jerk-2/2row-10/10hs': [part('Jerk', 2), part('Row', 2), part('Half Snatch', 10)],
+  '4hs-5jerk': [part('Half Snatch', 4), part('Jerk', 5)],
+  '4hs-5press': [part('Half Snatch', 4), part('Press', 5)],
+  '6/6gr-lc-jerk': [part('Gorilla row', 6), part('Long Cycle'), part('Jerk')],
+}
+
+// The parts of a chain, or null for a normal exercise
+export function chainParts(name) {
+  return CHAINS[nameKey(name)] ?? null
 }
 
 // A new name with a number in it is probably a combo; the popup suggests "don't count"
@@ -176,6 +186,7 @@ export function classificationFromRow(row) {
 export function classify(name, saved) {
   const key = nameKey(name)
   if (!key) return null
+  if (CHAINS[key]) return { ...m([]), chain: CHAINS[key] }
   return saved?.get(key) ?? DEFAULTS[key] ?? null
 }
 
@@ -200,12 +211,26 @@ export function muscleSets(exerciseSets, saved) {
     if (!count) continue
     const c = classify(name, saved)
     if (!c) { unclassified.push(name); continue }
-    if (c.notCounted) continue
+    if (c.notCounted || c.chain) continue
     for (const level of LEVELS) {
       for (const id of c[level]) sets.set(id, sets.get(id) + count * LEVEL_WEIGHT[level])
     }
   }
   return { sets, unclassified }
+}
+
+// Add one logged set (reps, × multiplier for rounds) to a Map of exercise name -> sets.
+// Chains are split into their parts.
+export function addSets(counts, name, reps, multiplier = 1) {
+  if (!name || !multiplier) return
+  const parts = chainParts(name)
+  const entries = parts
+    ? parts.map(p => [p.name, reps == null ? null : p.reps * reps])
+    : [[name, reps]]
+  for (const [n, r] of entries) {
+    const sets = setsForReps(r) * multiplier
+    if (sets) counts.set(n, (counts.get(n) ?? 0) + sets)
+  }
 }
 
 // Sets per exercise name for a day being logged (WorkoutDay state shape).
@@ -215,19 +240,16 @@ export function muscleSets(exerciseSets, saved) {
 // so the map previews a routine while you build it.
 export function exerciseSetsForDay(exercises, complexes, { planned = false } = {}) {
   const out = new Map()
-  const add = (name, n) => {
-    if (!name || !n) return
-    out.set(name, (out.get(name) ?? 0) + n)
-  }
   for (const ex of exercises ?? []) {
-    for (const s of ex.sets) {
-      if (planned || s.reps) add(ex.exerciseName, setsForReps(s.reps) * (s.rounds ?? 1))
+    for (const set of ex.sets) {
+      if (planned || set.reps) addSets(out, ex.exerciseName, set.reps, set.rounds ?? 1)
     }
   }
   for (const cx of complexes ?? []) {
     const rounds = planned ? Math.max(cx.rounds ?? 0, 1) : (cx.rounds ?? 0)
     for (const ex of cx.exercises ?? []) {
-      if (planned || ex.sets[0]?.reps) add(ex.exerciseName, setsForReps(ex.sets[0]?.reps) * rounds)
+      const reps = ex.sets[0]?.reps
+      if (planned || reps) addSets(out, ex.exerciseName, reps, rounds)
     }
   }
   return out

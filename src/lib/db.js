@@ -3,7 +3,7 @@ import {
   getPeriodStart, getPeriodEnd, getPeriodKey, shiftPeriod,
   formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight, excludedFromLoad, effectiveSetWeight,
 } from './utils'
-import { classify, classificationFromRow, setsForReps } from './muscles'
+import { classify, classificationFromRow, addSets } from './muscles'
 import {
   normalizeTemplateSession, pickBestSession, bestExerciseSets, complexSignature, nameKey,
 } from './workoutTemplates'
@@ -186,9 +186,6 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
       if (set.reps == null) continue
       const { type, kg, isBW } = effectiveSetWeight(ex.weight_type, ex.weight_kg, set.weight_type, set.weight_kg)
       const effReps = (set.reps ?? 0) * (set.rounds ?? 1) * complexRounds
-      // A set with rounds ×3 is 3 sets; each complex round is one set of each exercise;
-      // very long sets count extra (setsForReps)
-      const setCount = setsForReps(set.reps) * (set.rounds ?? 1) * complexRounds
       const load = isBW ? 0 : effReps * kg * (type === 'double' ? 2 : 1)
       records.push({
         name: ex.exercise_name,
@@ -198,7 +195,8 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
         reps: effReps,
         load,
         isBW,
-        sets: setCount,
+        rawReps: set.reps,
+        setMultiplier: (set.rounds ?? 1) * complexRounds,
       })
     }
   }
@@ -235,7 +233,7 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
   const periodExerciseSets = new Map()
   for (const r of records) {
     if (getPeriodKey(granularity, r.date) !== currentKey) continue
-    periodExerciseSets.set(r.name, (periodExerciseSets.get(r.name) ?? 0) + r.sets)
+    addSets(periodExerciseSets, r.name, r.rawReps, r.setMultiplier)
   }
   const currentStart = getPeriodStart(granularity, referenceDate)
   const currentEnd   = getPeriodEnd(granularity, referenceDate)

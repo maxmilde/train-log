@@ -13,6 +13,14 @@ function MuscleLine({ classification }) {
   if (!classification) {
     return <span className="text-[10px] text-yellow-600 bg-yellow-950/40 border border-yellow-900/50 rounded px-1.5 py-0.5">No muscles set</span>
   }
+  if (classification.chain) {
+    return (
+      <span className="text-[11px] text-gray-400">
+        <span className="text-purple-300">Chain:</span> counts as{' '}
+        {classification.chain.map(p => (p.reps > 1 ? `${p.reps} ${p.name}` : p.name)).join(' + ')}
+      </span>
+    )
+  }
   if (classification.notCounted) {
     return <span className="text-[10px] text-purple-300 bg-purple-950/40 border border-purple-900/50 rounded px-1.5 py-0.5">Combo, not counted</span>
   }
@@ -217,14 +225,14 @@ export default function ExerciseCatalog() {
                   )}
                 </div>
                 <div className="flex items-start gap-1 flex-shrink-0">
-                  <button
+                  {!lookup(item.name)?.chain && <button
                     type="button"
                     onClick={() => setMusclesFor(item.name)}
                     className="p-2 text-gray-500 hover:text-green-400 active:text-green-300"
                     aria-label="Set muscles"
                   >
                     <PersonStanding size={16} />
-                  </button>
+                  </button>}
                   <button
                     type="button"
                     onClick={() => startRename(item.name)}
