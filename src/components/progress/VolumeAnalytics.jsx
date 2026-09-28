@@ -3,6 +3,10 @@ import { Bar } from 'react-chartjs-2'
 import { ChevronLeft, ChevronRight, Trophy, TrendingUp, TrendingDown, BarChart2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getVolumeAnalytics } from '../../lib/db'
+import { useMuscles } from '../../context/MuscleContext'
+import { muscleSets } from '../../lib/muscles'
+import MuscleCard from '../muscles/MuscleCard'
+import MuscleEditor from '../muscles/MuscleEditor'
 import { shiftPeriod, getPeriodKey, toDateStr } from '../../lib/utils'
 
 const GRANULARITIES = [
@@ -31,6 +35,8 @@ export default function VolumeAnalytics() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const { saved } = useMuscles()
+  const [classifying, setClassifying] = useState(null)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -185,6 +191,15 @@ export default function VolumeAnalytics() {
         </div>
       </div>
 
+      {/* Muscle map for the same period */}
+      <MuscleSection
+        data={data}
+        saved={saved}
+        granularity={granularity}
+        onClassify={setClassifying}
+      />
+      {classifying && <MuscleEditor name={classifying} onClose={() => setClassifying(null)} />}
+
       {/* Per-exercise sections */}
       {exercises.length === 0 && (
         <div className="bg-gray-800 rounded-xl p-6 text-center">
@@ -196,6 +211,25 @@ export default function VolumeAnalytics() {
       {exercises.map(ex => (
         <ExerciseSection key={ex.name} exercise={ex} granularity={granularity} />
       ))}
+    </div>
+  )
+}
+
+function MuscleSection({ data, saved, granularity, onClassify }) {
+  const { sets, unclassified } = useMemo(
+    () => muscleSets(data.periodExerciseSets, saved),
+    [data, saved]
+  )
+  return (
+    <div className="bg-gray-800 rounded-2xl p-4 space-y-2">
+      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Muscles · sets this {granularity}</p>
+      <MuscleCard
+        sets={sets}
+        unclassified={unclassified}
+        untrainedLabel={`this ${granularity}`}
+        onClassify={onClassify}
+        emptyText={`Nothing logged this ${granularity}.`}
+      />
     </div>
   )
 }

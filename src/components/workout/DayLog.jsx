@@ -5,6 +5,7 @@ import ComplexRow from './ComplexRow'
 import ComplexPicker from './ComplexPicker'
 import WorkoutSummary from './WorkoutSummary'
 import WorkoutTemplateBar from './WorkoutTemplateBar'
+import DayMuscles from '../muscles/DayMuscles'
 import { nameKey, complexSignature } from '../../lib/workoutTemplates'
 import { DIFFICULTIES, toDateStr } from '../../lib/utils'
 
@@ -212,6 +213,11 @@ export default function DayLog({
           />
         )}
       </div>
+
+      {/* What the routine hits, while building it (after submitting it's in the summary) */}
+      {hasContent && !submitted && (
+        <DayMuscles exercises={exercises} complexes={complexes} planned collapsible />
+      )}
 
       {/* Duration — at the bottom */}
       <div className="pt-2">

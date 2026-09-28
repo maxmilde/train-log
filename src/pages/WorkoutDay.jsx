@@ -24,6 +24,9 @@ import {
 import { toDateStr, defaultsToBodyweight, dayDifficulty } from '../lib/utils'
 import { buildGhosts, bestExerciseTotals, fastestDuration } from '../lib/workoutTemplates'
 import DayLog from '../components/workout/DayLog'
+import MuscleEditor from '../components/muscles/MuscleEditor'
+import { useMuscles } from '../context/MuscleContext'
+import { nameKey } from '../lib/workoutTemplates'
 
 function normDay(day) {
   const complexes = (day.complexes ?? []).map(normComplex)
@@ -115,6 +118,18 @@ export default function WorkoutDayPage() {
   const [templateInfo, setTemplateInfo] = useState(null)
 
   const fromDashboard = !!routeDate
+
+  // Naming an exercise the app has no muscles for opens the muscle picker.
+  // "Later" is remembered for this visit so it doesn't ask again mid-workout.
+  const { lookup, loaded: musclesLoaded } = useMuscles()
+  const [classifyName, setClassifyName] = useState(null)
+  const skippedRef = useRef(new Set())
+  const askMuscles = useCallback((name) => {
+    const trimmed = name?.trim()
+    if (!trimmed || !musclesLoaded || lookup(trimmed)) return
+    if (skippedRef.current.has(nameKey(trimmed))) return
+    setClassifyName(trimmed)
+  }, [lookup, musclesLoaded])
 
   // Load (or reload) the day from the database
   const loadDay = useCallback(async () => {
@@ -341,6 +356,8 @@ export default function WorkoutDayPage() {
       bwSetIds = ex.sets.filter(hasDefaultWeight).map(s => s.id)
     }
 
+    if ('exerciseName' in patch) askMuscles(patch.exerciseName)
+
     // Optimistic update
     setState(prev => ({
       ...prev,
@@ -383,7 +400,7 @@ export default function WorkoutDayPage() {
         getExerciseNames(user.id).then(setNames)
       }
     })
-  }, [user, state, persist])
+  }, [user, state, persist, askMuscles])
 
   // Swap positions of two items in the mixed exercises+complexes list.
   const handleMoveItem = useCallback(async (fromIndex, toIndex) => {
@@ -554,6 +571,8 @@ export default function WorkoutDayPage() {
       if (ex.sets[0] && hasDefaultWeight(ex.sets[0])) flipSet = ex.sets[0]
     }
 
+    if ('exerciseName' in patch) askMuscles(patch.exerciseName)
+
     // Optimistic
     setState(prev => ({
       ...prev,
@@ -602,7 +621,7 @@ export default function WorkoutDayPage() {
         getExerciseNames(user.id).then(setNames)
       }
     })
-  }, [user, state, persist])
+  }, [user, state, persist, askMuscles])
 
   // Update the single set inside a complex-exercise (reps or weight/type)
   const handleUpdateComplexSet = useCallback(async (complexId, exerciseId, patch) => {
@@ -919,6 +938,17 @@ export default function WorkoutDayPage() {
             </div>
           )}
         </div>
+      )}
+
+      {classifyName && (
+        <MuscleEditor
+          name={classifyName}
+          isNew
+          onClose={() => {
+            skippedRef.current.add(nameKey(classifyName))
+            setClassifyName(null)
+          }}
+        />
       )}
 
       <div className="flex-1 overflow-y-auto scroll-panel">

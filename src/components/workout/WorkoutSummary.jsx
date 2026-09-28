@@ -1,6 +1,7 @@
 import { Trophy, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { weightLabelFor, repsAreParSide, effectiveSetWeight } from '../../lib/utils'
 import { exerciseTotalsForState } from '../../lib/workoutTemplates'
+import DayMuscles from '../muscles/DayMuscles'
 
 export default function WorkoutSummary({ exercises, complexes = [], durationMinutes, templateInfo }) {
   const hasWork = (exercises && exercises.length > 0) || (complexes && complexes.length > 0)
@@ -93,6 +94,11 @@ export default function WorkoutSummary({ exercises, complexes = [], durationMinu
           </span>
         </div>
       )}
+
+      <div className="pt-3 border-t border-gray-700 space-y-2">
+        <p className="text-[10px] text-gray-500 uppercase tracking-wider">Muscles trained</p>
+        <DayMuscles exercises={exercises} complexes={complexes} />
+      </div>
 
       {templateInfo?.sessions > 0 && (
         <BestComparison

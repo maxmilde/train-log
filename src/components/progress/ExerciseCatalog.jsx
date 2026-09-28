@@ -1,7 +1,36 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { getExerciseCatalog, renameExercise, deleteExerciseByName } from '../../lib/db'
-import { Pencil, Trash2, Check, X } from 'lucide-react'
+import { Pencil, Trash2, Check, X, PersonStanding } from 'lucide-react'
+import { useMuscles } from '../../context/MuscleContext'
+import { MUSCLE_GROUPS, LEVELS, LEVEL_LABEL } from '../../lib/muscles'
+import MuscleEditor from '../muscles/MuscleEditor'
+
+const GROUP_LABEL = Object.fromEntries(MUSCLE_GROUPS.map(g => [g.id, g.label]))
+
+// One-line muscle summary: "Glutes, Hamstrings · 2nd Lower back · …"
+function MuscleLine({ classification }) {
+  if (!classification) {
+    return <span className="text-[10px] text-yellow-600 bg-yellow-950/40 border border-yellow-900/50 rounded px-1.5 py-0.5">No muscles set</span>
+  }
+  if (classification.notCounted) {
+    return <span className="text-[10px] text-purple-300 bg-purple-950/40 border border-purple-900/50 rounded px-1.5 py-0.5">Combo, not counted</span>
+  }
+  const parts = LEVELS
+    .filter(level => classification[level].length > 0)
+    .map(level => ({ level, names: classification[level].map(id => GROUP_LABEL[id]).join(', ') }))
+  return (
+    <span className="text-[11px] text-gray-400">
+      {parts.map((p, i) => (
+        <span key={p.level}>
+          {i > 0 && <span className="text-gray-600"> · </span>}
+          {i > 0 && <span className="text-gray-500">{LEVEL_LABEL[p.level]} </span>}
+          <span className={i === 0 ? 'text-gray-300' : ''}>{p.names}</span>
+        </span>
+      ))}
+    </span>
+  )
+}
 
 const SORTS = [
   { id: 'az',     label: 'A–Z' },
@@ -18,6 +47,8 @@ export default function ExerciseCatalog() {
   const [editValue, setEditValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [sortId, setSortId] = useState('az')
+  const { lookup, refresh: refreshMuscles } = useMuscles()
+  const [musclesFor, setMusclesFor] = useState(null)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -56,7 +87,7 @@ export default function ExerciseCatalog() {
     setBusy(true)
     try {
       await renameExercise(user.id, oldName, newName)
-      await load()
+      await Promise.all([load(), refreshMuscles()])
       setEditingName(null)
       setEditValue('')
     } catch (e) {
@@ -74,7 +105,7 @@ export default function ExerciseCatalog() {
     setBusy(true)
     try {
       await deleteExerciseByName(user.id, name)
-      await load()
+      await Promise.all([load(), refreshMuscles()])
     } catch (e) {
       alert('Delete failed: ' + e.message)
     } finally {
@@ -108,7 +139,7 @@ export default function ExerciseCatalog() {
   return (
     <div className="space-y-2">
       <p className="text-xs text-gray-500 px-1 mb-2">
-        {items.length} exercise{items.length !== 1 ? 's' : ''} · tap to rename or delete
+        {items.length} exercise{items.length !== 1 ? 's' : ''} · set muscles, rename or delete
       </p>
 
       {/* Sort selector */}
@@ -170,6 +201,9 @@ export default function ExerciseCatalog() {
                     {item.totalReps > 0 ? ` · ${item.totalReps} total reps` : ''}
                     {item.lastDate ? ` · last ${item.lastDate}` : ''}
                   </p>
+                  <div className="mt-1">
+                    <MuscleLine classification={lookup(item.name)} />
+                  </div>
                   {item.configs.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {item.configs.map(c => (
@@ -181,6 +215,14 @@ export default function ExerciseCatalog() {
                   )}
                 </div>
                 <div className="flex items-start gap-1 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setMusclesFor(item.name)}
+                    className="p-2 text-gray-500 hover:text-green-400 active:text-green-300"
+                    aria-label="Set muscles"
+                  >
+                    <PersonStanding size={16} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => startRename(item.name)}
@@ -203,6 +245,7 @@ export default function ExerciseCatalog() {
           </div>
         )
       })}
+      {musclesFor && <MuscleEditor name={musclesFor} onClose={() => setMusclesFor(null)} />}
     </div>
   )
 }

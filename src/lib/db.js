@@ -185,6 +185,8 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
       if (set.reps == null) continue
       const { type, kg, isBW } = effectiveSetWeight(ex.weight_type, ex.weight_kg, set.weight_type, set.weight_kg)
       const effReps = (set.reps ?? 0) * (set.rounds ?? 1) * complexRounds
+      // A set with rounds ×3 is 3 sets; each complex round is one set of each exercise
+      const setCount = (set.rounds ?? 1) * complexRounds
       const load = isBW ? 0 : effReps * kg * (type === 'double' ? 2 : 1)
       records.push({
         name: ex.exercise_name,
@@ -194,6 +196,7 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
         reps: effReps,
         load,
         isBW,
+        sets: setCount,
       })
     }
   }
@@ -225,6 +228,13 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
   }
 
   const currentKey = getPeriodKey(granularity, referenceDate)
+
+  // Sets per exercise name in the current period (muscle map)
+  const periodExerciseSets = new Map()
+  for (const r of records) {
+    if (getPeriodKey(granularity, r.date) !== currentKey) continue
+    periodExerciseSets.set(r.name, (periodExerciseSets.get(r.name) ?? 0) + r.sets)
+  }
   const currentStart = getPeriodStart(granularity, referenceDate)
   const currentEnd   = getPeriodEnd(granularity, referenceDate)
   const currentStartStr = toDateStr(currentStart)
@@ -375,6 +385,7 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
     bestEver: bestPeriodTotalEver,
     chart,
     exercises,
+    periodExerciseSets,
   }
 }
 
@@ -1059,6 +1070,7 @@ export async function renameExercise(userId, oldName, newName) {
     .eq('user_id', userId)
     .eq('exercise_name', oldName)
   if (error) throw error
+  await renameExerciseMuscles(userId, oldName, newName)
 }
 
 // Delete ALL workout_exercises rows for this user with the given name.
@@ -1070,6 +1082,90 @@ export async function deleteExerciseByName(userId, name) {
     .eq('user_id', userId)
     .eq('exercise_name', name)
   if (error) throw error
+  // Only forget the muscles if no other spelling of the name is still logged
+  const { data: left } = await supabase
+    .from('workout_exercises')
+    .select('exercise_name')
+    .eq('user_id', userId)
+    .ilike('exercise_name', name.trim())
+    .limit(1)
+  if (!left?.length) await deleteExerciseMuscles(userId, name)
+}
+
+// ── MUSCLE MAP ──────────────────────────────────────────────────────────────────
+// Saved muscle classifications (overrides of the built-in ones in lib/muscles.js).
+// If the exercise_muscles table hasn't been created yet, reads return nothing and
+// writes throw a clear message, so the rest of the app keeps working.
+
+const MISSING_TABLE = new Set(['42P01', 'PGRST205'])
+const missingTableError = () =>
+  new Error('Muscle tags need a one-time database update: run supabase-muscle-map.sql in Supabase')
+
+export async function getExerciseMuscles(userId) {
+  const { data, error } = await supabase
+    .from('exercise_muscles')
+    .select('name_key, primary_muscles, secondary_muscles, tertiary_muscles, quaternary_muscles, not_counted')
+    .eq('user_id', userId)
+  if (error) {
+    if (MISSING_TABLE.has(error.code)) return []
+    throw error
+  }
+  return data ?? []
+}
+
+export async function saveExerciseMuscles(userId, name, { primary, secondary, tertiary, quaternary, notCounted }) {
+  const row = {
+    user_id: userId,
+    name_key: nameKey(name),
+    primary_muscles: primary,
+    secondary_muscles: secondary,
+    tertiary_muscles: tertiary,
+    quaternary_muscles: quaternary,
+    not_counted: notCounted,
+    updated_at: new Date().toISOString(),
+  }
+  const { data, error } = await supabase
+    .from('exercise_muscles')
+    .upsert(row, { onConflict: 'user_id,name_key' })
+    .select('name_key, primary_muscles, secondary_muscles, tertiary_muscles, quaternary_muscles, not_counted')
+    .single()
+  if (error) throw MISSING_TABLE.has(error.code) ? missingTableError() : error
+  return data
+}
+
+async function deleteExerciseMuscles(userId, name) {
+  const { error } = await supabase
+    .from('exercise_muscles')
+    .delete()
+    .eq('user_id', userId)
+    .eq('name_key', nameKey(name))
+  if (error && !MISSING_TABLE.has(error.code)) throw error
+}
+
+// Carry a saved classification over to the new name. When merging into a name that
+// already has its own, the target's is kept.
+async function renameExerciseMuscles(userId, oldName, newName) {
+  const oldKey = nameKey(oldName)
+  const newKey = nameKey(newName)
+  if (oldKey === newKey) return
+  const { data, error } = await supabase
+    .from('exercise_muscles')
+    .select('*')
+    .eq('user_id', userId)
+    .in('name_key', [oldKey, newKey])
+  if (error) {
+    if (MISSING_TABLE.has(error.code)) return
+    throw error
+  }
+  const oldRow = data?.find(r => r.name_key === oldKey)
+  if (!oldRow) return
+  if (!data.some(r => r.name_key === newKey)) {
+    const { error: insErr } = await supabase
+      .from('exercise_muscles')
+      .insert({ ...oldRow, name_key: newKey, updated_at: new Date().toISOString() })
+    if (insErr) throw insErr
+  }
+  await deleteExerciseMuscles(userId, oldName)
 }
 
 // PBs respect per-set type+weight overrides AND the rounds multiplier:
