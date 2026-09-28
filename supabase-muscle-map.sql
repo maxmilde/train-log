@@ -22,6 +22,3 @@ CREATE POLICY "own exercise muscles" ON exercise_muscles
   FOR ALL TO authenticated
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
-
--- One-off: "Swings" was the same exercise as "Swing"
-UPDATE workout_exercises SET exercise_name = 'Swing' WHERE exercise_name = 'Swings';

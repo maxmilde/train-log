@@ -87,7 +87,8 @@ export default function ExerciseCatalog() {
     setBusy(true)
     try {
       await renameExercise(user.id, oldName, newName)
-      await Promise.all([load(), refreshMuscles()])
+      await load()
+      refreshMuscles().catch(e => console.error('Refresh muscle tags:', e))
       setEditingName(null)
       setEditValue('')
     } catch (e) {
@@ -105,7 +106,8 @@ export default function ExerciseCatalog() {
     setBusy(true)
     try {
       await deleteExerciseByName(user.id, name)
-      await Promise.all([load(), refreshMuscles()])
+      await load()
+      refreshMuscles().catch(e => console.error('Refresh muscle tags:', e))
     } catch (e) {
       alert('Delete failed: ' + e.message)
     } finally {

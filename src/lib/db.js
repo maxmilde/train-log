@@ -3,6 +3,7 @@ import {
   getPeriodStart, getPeriodEnd, getPeriodKey, shiftPeriod,
   formatPeriodLabel, formatPeriodShort, toDateStr, defaultsToBodyweight, excludedFromLoad, effectiveSetWeight,
 } from './utils'
+import { classify, classificationFromRow } from './muscles'
 import {
   normalizeTemplateSession, pickBestSession, bestExerciseSets, complexSignature, nameKey,
 } from './workoutTemplates'
@@ -186,7 +187,7 @@ export async function getVolumeAnalytics(userId, granularity, referenceDate) {
       const { type, kg, isBW } = effectiveSetWeight(ex.weight_type, ex.weight_kg, set.weight_type, set.weight_kg)
       const effReps = (set.reps ?? 0) * (set.rounds ?? 1) * complexRounds
       // A set with rounds ×3 is 3 sets; each complex round is one set of each exercise
-      const setCount = (set.rounds ?? 1) * complexRounds
+      const setCount = set.reps ? (set.rounds ?? 1) * complexRounds : 0
       const load = isBW ? 0 : effReps * kg * (type === 'double' ? 2 : 1)
       records.push({
         name: ex.exercise_name,
@@ -1070,7 +1071,9 @@ export async function renameExercise(userId, oldName, newName) {
     .eq('user_id', userId)
     .eq('exercise_name', oldName)
   if (error) throw error
-  await renameExerciseMuscles(userId, oldName, newName)
+  try {
+    await renameExerciseMuscles(userId, oldName, newName)
+  } catch (e) { console.error('Rename muscle tags:', e) }
 }
 
 // Delete ALL workout_exercises rows for this user with the given name.
@@ -1083,13 +1086,9 @@ export async function deleteExerciseByName(userId, name) {
     .eq('exercise_name', name)
   if (error) throw error
   // Only forget the muscles if no other spelling of the name is still logged
-  const { data: left } = await supabase
-    .from('workout_exercises')
-    .select('exercise_name')
-    .eq('user_id', userId)
-    .ilike('exercise_name', name.trim())
-    .limit(1)
-  if (!left?.length) await deleteExerciseMuscles(userId, name)
+  try {
+    if (!(await isNameStillLogged(userId, name))) await deleteExerciseMuscles(userId, name)
+  } catch (e) { console.error('Delete muscle tags:', e) }
 }
 
 // ── MUSCLE MAP ──────────────────────────────────────────────────────────────────
@@ -1142,8 +1141,15 @@ async function deleteExerciseMuscles(userId, name) {
   if (error && !MISSING_TABLE.has(error.code)) throw error
 }
 
-// Carry a saved classification over to the new name. When merging into a name that
-// already has its own, the target's is kept.
+// Is any spelling of this name (same nameKey) still logged?
+async function isNameStillLogged(userId, name) {
+  const key = nameKey(name)
+  return (await getExerciseNames(userId)).some(n => nameKey(n) === key)
+}
+
+// Give the new name the old name's muscles (saved or built-in), unless the new name
+// already has its own (e.g. merging into an existing exercise). The old name keeps its
+// row while another spelling of it is still logged.
 async function renameExerciseMuscles(userId, oldName, newName) {
   const oldKey = nameKey(oldName)
   const newKey = nameKey(newName)
@@ -1157,15 +1163,14 @@ async function renameExerciseMuscles(userId, oldName, newName) {
     if (MISSING_TABLE.has(error.code)) return
     throw error
   }
-  const oldRow = data?.find(r => r.name_key === oldKey)
-  if (!oldRow) return
-  if (!data.some(r => r.name_key === newKey)) {
-    const { error: insErr } = await supabase
-      .from('exercise_muscles')
-      .insert({ ...oldRow, name_key: newKey, updated_at: new Date().toISOString() })
-    if (insErr) throw insErr
+  const saved = new Map((data ?? []).map(r => [r.name_key, classificationFromRow(r)]))
+  const source = classify(oldName, saved)
+  if (source && !classify(newName, saved)) {
+    await saveExerciseMuscles(userId, newName, source)
   }
-  await deleteExerciseMuscles(userId, oldName)
+  if (saved.has(oldKey) && !(await isNameStillLogged(userId, oldName))) {
+    await deleteExerciseMuscles(userId, oldName)
+  }
 }
 
 // PBs respect per-set type+weight overrides AND the rounds multiplier:

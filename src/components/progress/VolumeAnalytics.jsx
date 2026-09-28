@@ -195,7 +195,9 @@ export default function VolumeAnalytics() {
       <MuscleSection
         data={data}
         saved={saved}
-        granularity={granularity}
+        periodName={isNow
+          ? (data.granularity === 'day' ? 'today' : `this ${data.granularity}`)
+          : `in ${data.currentLabel}`}
         onClassify={setClassifying}
       />
       {classifying && <MuscleEditor name={classifying} onClose={() => setClassifying(null)} />}
@@ -215,20 +217,20 @@ export default function VolumeAnalytics() {
   )
 }
 
-function MuscleSection({ data, saved, granularity, onClassify }) {
+function MuscleSection({ data, saved, periodName, onClassify }) {
   const { sets, unclassified } = useMemo(
     () => muscleSets(data.periodExerciseSets, saved),
     [data, saved]
   )
   return (
     <div className="bg-gray-800 rounded-2xl p-4 space-y-2">
-      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Muscles · sets this {granularity}</p>
+      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Muscles · sets {periodName}</p>
       <MuscleCard
         sets={sets}
         unclassified={unclassified}
-        untrainedLabel={`this ${granularity}`}
+        untrainedLabel={periodName}
         onClassify={onClassify}
-        emptyText={`Nothing logged this ${granularity}.`}
+        emptyText={`Nothing logged ${periodName}.`}
       />
     </div>
   )

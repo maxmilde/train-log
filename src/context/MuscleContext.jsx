@@ -18,10 +18,14 @@ export function MuscleProvider({ children }) {
 
   useEffect(() => {
     if (!user) return
+    // If this fails (offline), `loaded` stays false so the Log never asks about
+    // exercises whose muscles you've already set
     getExerciseMuscles(user.id)
-      .then(rows => setSaved(new Map(rows.map(r => [r.name_key, classificationFromRow(r)]))))
+      .then(rows => {
+        setSaved(new Map(rows.map(r => [r.name_key, classificationFromRow(r)])))
+        setLoaded(true)
+      })
       .catch(e => console.error('Load muscle tags:', e))
-      .finally(() => setLoaded(true))
   }, [user])
 
   const save = useCallback(async (name, classification) => {

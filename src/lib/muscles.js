@@ -72,9 +72,10 @@ const pump        = m(['chest', 'triceps'], ['shoulders'], ['quads', 'glutes'], 
 const row         = m(['lats', 'upperBack'], ['biceps'], ['shoulders', 'forearms'], ['lowerBack'])
 const press       = m(['shoulders'], ['triceps'], ['traps'], ['abs'])
 const pushPress   = m(['shoulders'], ['triceps', 'quads'], ['glutes'], ['traps', 'calves'])
-const clean       = m(['glutes', 'hamstrings'], ['forearms', 'lowerBack'], ['traps'], ['abs'])
+const clean       = m(['glutes', 'hamstrings'], ['forearms', 'lowerBack'], ['traps'], ['abs', 'biceps'])
 const jerk        = m(['shoulders', 'quads'], ['triceps', 'glutes'], ['calves', 'traps'], ['abs'])
-const snatch      = m(['glutes', 'hamstrings', 'shoulders'], ['forearms', 'upperBack', 'lowerBack'], ['traps'], ['abs', 'triceps'])
+const snatch      = m(['glutes', 'hamstrings', 'shoulders', 'forearms'], ['upperBack', 'lowerBack'], ['traps', 'lats'], ['abs', 'triceps'])
+const halfSnatch  = m(['glutes', 'hamstrings', 'shoulders'], ['forearms', 'upperBack', 'lowerBack'], ['traps', 'lats'], ['abs', 'triceps', 'biceps'])
 const swing       = m(['glutes', 'hamstrings'], ['lowerBack'], ['forearms'], ['shoulders', 'abs'])
 const squat       = m(['quads', 'glutes'], ['adductors'], ['hamstrings', 'lowerBack'], ['abs'])
 const lunge       = m(['quads', 'glutes'], ['hamstrings', 'adductors'], [], ['calves'])
@@ -95,7 +96,7 @@ const DEFAULTS = {
   'pullups': m(['lats'], ['biceps', 'upperBack'], ['forearms'], ['abs']),
   'bent row': row,
   'row': row,
-  'gorilla row': m(['lats', 'upperBack'], ['biceps'], ['lowerBack', 'forearms'], ['abs', 'shoulders']),
+  'gorilla row': m(['lats', 'upperBack'], ['biceps'], ['lowerBack', 'forearms', 'obliques'], ['abs', 'shoulders']),
   'high pulls': highPull,
   'shrugs': m(['traps'], [], ['forearms']),
   'bicep curls': m(['biceps'], [], ['forearms']),
@@ -112,7 +113,7 @@ const DEFAULTS = {
   'long cycle': longCycle,
   // Long Cycle positions held statically (hang, rack, overhead) — heavy on the grip
   'hold-rack-top': m(['shoulders', 'glutes', 'quads', 'forearms'], ['hamstrings', 'triceps'], ['lowerBack', 'traps', 'calves'], ['abs']),
-  'half snatch': snatch,
+  'half snatch': halfSnatch,
   'snatch': snatch,
   'swing': swing,
   'swings': swing,
@@ -129,13 +130,13 @@ const DEFAULTS = {
   'clean-squat-lunge-lunge': combine(clean, squat, lunge),
   'squat-lunge-lunge': combine(squat, lunge),
   'ds-clean-press': combine(snatch, clean, press),
-  'hs-jerk-fsquat': combine(snatch, jerk, squat),
-  'hs-lc': combine(snatch, longCycle),
-  'hs-lc-squat': combine(snatch, longCycle, squat),
-  'hs-squat': combine(snatch, squat),
+  'hs-jerk-fsquat': combine(halfSnatch, jerk, squat),
+  'hs-lc': combine(halfSnatch, longCycle),
+  'hs-lc-squat': combine(halfSnatch, longCycle, squat),
+  'hs-squat': combine(halfSnatch, squat),
   'swing-clean-ppress-squat-hpull': combine(swing, clean, pushPress, squat, highPull),
   'swing-clean-ppress-squat-row': combine(swing, clean, pushPress, squat, row),
-  'swing-hs': combine(swing, snatch),
+  'swing-hs': combine(swing, halfSnatch),
   'swing-lc': combine(swing, longCycle),
   'swing-snatch': combine(swing, snatch),
   // Combos (numbers in the name) — not counted
@@ -224,7 +225,7 @@ export function untrainedMuscles(sets) {
   return MUSCLE_GROUPS.filter(g => !(sets.get(g.id) > 0))
 }
 
-// Sets rounded for display: whole numbers stay whole, halves/quarters keep one decimal
+// Sets for display: 3, 2.5, 0.75 (quarters are exact, so two decimals at most)
 export function formatSets(n) {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, '')
+  return String(Math.round(n * 100) / 100)
 }
