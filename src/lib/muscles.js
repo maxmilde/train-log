@@ -72,16 +72,18 @@ const pump        = m(['chest', 'triceps'], ['shoulders'], ['quads', 'glutes'], 
 const row         = m(['lats', 'upperBack'], ['biceps'], ['shoulders', 'forearms'], ['lowerBack'])
 const press       = m(['shoulders'], ['triceps'], ['traps'], ['abs'])
 const pushPress   = m(['shoulders'], ['triceps', 'quads'], ['glutes'], ['traps', 'calves'])
-const clean       = m(['glutes', 'hamstrings'], ['forearms', 'lowerBack'], ['traps'], ['abs', 'biceps'])
-const jerk        = m(['shoulders', 'quads'], ['triceps', 'glutes'], ['calves', 'traps'], ['abs'])
-const snatch      = m(['glutes', 'hamstrings', 'shoulders', 'forearms'], ['upperBack', 'lowerBack'], ['traps', 'lats'], ['abs', 'triceps'])
-const halfSnatch  = m(['glutes', 'hamstrings', 'shoulders'], ['forearms', 'upperBack', 'lowerBack'], ['traps', 'lats'], ['abs', 'triceps', 'biceps'])
-const swing       = m(['glutes', 'hamstrings'], ['lowerBack'], ['forearms'], ['shoulders', 'abs'])
+// Heavy cleans work the biceps hard (owner's experience) on top of the hip drive
+const clean       = m(['glutes', 'hamstrings', 'biceps'], ['forearms', 'lowerBack'], ['traps', 'quads'], ['abs'])
+const jerk        = m(['shoulders', 'triceps', 'quads'], ['glutes', 'calves'], ['traps', 'upperBack', 'forearms'], ['abs'])
+const snatch      = m(['shoulders', 'hamstrings', 'glutes'], ['forearms', 'traps', 'upperBack', 'lowerBack'], ['quads', 'biceps', 'lats'], ['abs'])
+// Same as the snatch but the drop goes to the rack, so less grip
+const halfSnatch  = m(['shoulders', 'hamstrings', 'glutes'], ['traps', 'upperBack', 'lowerBack'], ['forearms', 'quads', 'biceps', 'lats'], ['abs'])
+const swing       = m(['glutes', 'hamstrings', 'lowerBack'], ['forearms'], ['abs', 'shoulders', 'lats'], ['quads', 'traps'])
 const squat       = m(['quads', 'glutes'], ['adductors'], ['hamstrings', 'lowerBack'], ['abs'])
 const lunge       = m(['quads', 'glutes'], ['hamstrings', 'adductors'], [], ['calves'])
-const highPull    = m(['traps', 'upperBack'], ['shoulders'], ['glutes', 'hamstrings'], ['biceps', 'forearms'])
+const highPull    = m(['traps', 'upperBack', 'shoulders'], ['glutes', 'hamstrings'], ['lowerBack', 'biceps', 'forearms'], ['abs', 'calves'])
 const triceps     = m(['triceps'])
-const longCycle   = m(['shoulders', 'glutes', 'quads'], ['hamstrings', 'triceps', 'forearms'], ['lowerBack', 'traps', 'calves'], ['abs'])
+const longCycle   = combine(clean, jerk)
 
 const DEFAULTS = {
   '1 pump': pump,
@@ -96,7 +98,7 @@ const DEFAULTS = {
   'pullups': m(['lats'], ['biceps', 'upperBack'], ['forearms'], ['abs']),
   'bent row': row,
   'row': row,
-  'gorilla row': m(['lats', 'upperBack'], ['biceps'], ['lowerBack', 'forearms', 'obliques'], ['abs', 'shoulders']),
+  'gorilla row': m(['lats', 'upperBack'], ['biceps', 'shoulders'], ['forearms', 'lowerBack', 'obliques', 'abs'], ['glutes', 'hamstrings']),
   'high pulls': highPull,
   'shrugs': m(['traps'], [], ['forearms']),
   'bicep curls': m(['biceps'], [], ['forearms']),
@@ -104,15 +106,15 @@ const DEFAULTS = {
   'tricep extensions': triceps,
   'press': press,
   'side raises': m(['shoulders'], [], ['traps']),
-  'side bend press': m(['shoulders', 'obliques'], ['triceps'], [], ['abs']),
+  'side bend press': m(['shoulders', 'obliques'], ['triceps'], ['abs'], ['glutes', 'hamstrings']),
   'push press': pushPress,
   'clean press': combine(clean, press),
   'clean pp': combine(clean, pushPress),
   'clean': clean,
   'jerk': jerk,
   'long cycle': longCycle,
-  // Long Cycle positions held statically (hang, rack, overhead) — heavy on the grip
-  'hold-rack-top': m(['shoulders', 'glutes', 'quads', 'forearms'], ['hamstrings', 'triceps'], ['lowerBack', 'traps', 'calves'], ['abs']),
+  // The Long Cycle with holds in each position; the holds load the grip heavily
+  'hold-rack-top': combine(longCycle, m(['forearms'])),
   'half snatch': halfSnatch,
   'snatch': snatch,
   'swing': swing,
@@ -178,6 +180,15 @@ export function classify(name, saved) {
 
 // ── SET COUNTING ──────────────────────────────────────────────────────────────
 
+// A normal set is up to ~20 reps (8 Long Cycles at 2×24, 20 at 2×20). Longer sets,
+// like a 10-minute Long Cycle set, count as one set per REPS_PER_SET reps, so 100 reps
+// count as about 7 sets instead of 1. An empty (planned) set counts as 1.
+export const REPS_PER_SET = 15
+export function setsForReps(reps) {
+  if (reps == null) return 1
+  return reps > 0 ? Math.max(1, Math.round(reps / REPS_PER_SET)) : 0
+}
+
 // Spread per-exercise set counts onto muscles.
 // exerciseSets: Map of exercise name -> sets. Returns
 // { sets: Map muscleId -> weighted sets, unclassified: [names] }.
@@ -197,7 +208,8 @@ export function muscleSets(exerciseSets, saved) {
 }
 
 // Sets per exercise name for a day being logged (WorkoutDay state shape).
-// A set with rounds ×3 is 3 sets; each complex round is one set of every exercise in it.
+// A set with rounds ×3 is 3 sets; each complex round is one set of every exercise in it;
+// very long sets count extra (setsForReps).
 // With `planned`, empty sets count too and a complex counts at least one round,
 // so the map previews a routine while you build it.
 export function exerciseSetsForDay(exercises, complexes, { planned = false } = {}) {
@@ -208,13 +220,13 @@ export function exerciseSetsForDay(exercises, complexes, { planned = false } = {
   }
   for (const ex of exercises ?? []) {
     for (const s of ex.sets) {
-      if (planned || s.reps) add(ex.exerciseName, s.rounds ?? 1)
+      if (planned || s.reps) add(ex.exerciseName, setsForReps(s.reps) * (s.rounds ?? 1))
     }
   }
   for (const cx of complexes ?? []) {
     const rounds = planned ? Math.max(cx.rounds ?? 0, 1) : (cx.rounds ?? 0)
     for (const ex of cx.exercises ?? []) {
-      if (planned || ex.sets[0]?.reps) add(ex.exerciseName, rounds)
+      if (planned || ex.sets[0]?.reps) add(ex.exerciseName, setsForReps(ex.sets[0]?.reps) * rounds)
     }
   }
   return out
